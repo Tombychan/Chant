@@ -1,0 +1,1354 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<meta name="theme-color" content="#faf7f2" />
+<title>Chant — Parcours personnel de pédagogie vocale</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,400&family=IBM+Plex+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        fontFamily: {
+          serif: ['Fraunces', 'Georgia', 'serif'],
+          sans: ['"IBM Plex Sans"', 'system-ui', 'sans-serif'],
+          mono: ['"IBM Plex Mono"', 'ui-monospace', 'monospace'],
+        },
+        colors: {
+          paper: '#faf7f2',
+          ink: '#1a1814',
+          dim: '#6b6358',
+          accent: '#8b3a1f',
+          rule: '#e8e1d4',
+          soft: '#f0ebe0',
+        },
+      },
+    },
+  };
+</script>
+
+<style>
+  html, body { background: #faf7f2; color: #1a1814; }
+  body { -webkit-font-smoothing: antialiased; font-family: 'IBM Plex Sans', system-ui, sans-serif; }
+  .font-serif-display { font-family: 'Fraunces', Georgia, serif; font-optical-sizing: auto; }
+  .font-serif-body { font-family: 'Fraunces', Georgia, serif; font-optical-sizing: auto; }
+  .hyphen { hyphens: auto; -webkit-hyphens: auto; }
+  /* Scrollbar minimale */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #d6ccbb; border-radius: 3px; }
+  /* Focus visible accessible */
+  button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible {
+    outline: 2px solid #8b3a1f; outline-offset: 2px; border-radius: 2px;
+  }
+  /* Pour l'impression éventuelle du journal */
+  @media print {
+    .no-print { display: none; }
+  }
+  /* Animation douce d'entrée */
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+  .fade-in { animation: fadeUp 200ms ease-out both; }
+</style>
+
+<script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@18.3.1",
+    "react-dom/client": "https://esm.sh/react-dom@18.3.1/client"
+  }
+}
+</script>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="module">
+import React, { useState, useEffect, useRef, useMemo, useCallback, createContext, useContext } from 'react';
+import { createRoot } from 'react-dom/client';
+
+const h = React.createElement;
+
+/* ============================================================
+   CONSTANTES ET UTILITAIRES AUDIO
+   ============================================================ */
+
+// Noms de notes : anglo-saxon et français
+const NOTE_NAMES_EN = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+const NOTE_NAMES_FR = ['Do','Do#','Ré','Ré#','Mi','Fa','Fa#','Sol','Sol#','La','La#','Si'];
+
+// MIDI number -> name et octave (ex: 60 -> C4)
+function midiToNoteName(midi) {
+  const note = NOTE_NAMES_EN[midi % 12];
+  const octave = Math.floor(midi / 12) - 1;
+  return { en: note + octave, fr: NOTE_NAMES_FR[midi % 12] + octave, enRaw: note, frRaw: NOTE_NAMES_FR[midi % 12], octave };
+}
+
+// Name (ex "C4" ou "Do4") -> MIDI
+function noteNameToMidi(name) {
+  if (!name) return null;
+  const normalized = name.replace('b', '#'); // simplification, on n'utilise que les dièses
+  // On cherche d'abord en anglais, puis en français
+  const enMatch = normalized.match(/^([A-G]#?)(-?\d+)$/);
+  if (enMatch) {
+    const idx = NOTE_NAMES_EN.indexOf(enMatch[1]);
+    if (idx >= 0) return (parseInt(enMatch[2]) + 1) * 12 + idx;
+  }
+  // Français : Do, Ré, Mi, Fa, Sol, La, Si (avec #)
+  const frMatch = normalized.match(/^(Do#?|Ré#?|Re#?|Mi|Fa#?|Sol#?|La#?|Si)(-?\d+)$/);
+  if (frMatch) {
+    let base = frMatch[1].replace('Re', 'Ré');
+    const idx = NOTE_NAMES_FR.indexOf(base);
+    if (idx >= 0) return (parseInt(frMatch[2]) + 1) * 12 + idx;
+  }
+  return null;
+}
+
+// MIDI -> fréquence (Hz), formule standard A4 = 440 Hz (MIDI 69)
+function midiToFreq(midi) {
+  return 440 * Math.pow(2, (midi - 69) / 12);
+}
+
+/* ============================================================
+   CONTEXTE AUDIO — gestion iOS Safari
+   ============================================================ */
+
+const AudioCtx = createContext(null);
+
+function AudioProvider({ children }) {
+  const [activated, setActivated] = useState(false);
+  const audioCtxRef = useRef(null);
+
+  const ensureContext = useCallback(() => {
+    if (!audioCtxRef.current) {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      audioCtxRef.current = new Ctx();
+    }
+    if (audioCtxRef.current.state === 'suspended') {
+      audioCtxRef.current.resume();
+    }
+    setActivated(true);
+    return audioCtxRef.current;
+  }, []);
+
+  const playFrequency = useCallback((freq, duration = 1.5) => {
+    const ctx = ensureContext();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(freq, ctx.currentTime);
+
+    // Enveloppe ADSR douce pour éviter les clics
+    const now = ctx.currentTime;
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(0.25, now + 0.02); // attack
+    gain.gain.exponentialRampToValueAtTime(0.2, now + 0.07);  // decay -> sustain
+    gain.gain.setValueAtTime(0.2, now + duration - 0.2);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + duration); // release
+
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(now);
+    osc.stop(now + duration + 0.05);
+  }, [ensureContext]);
+
+  const playMidi = useCallback((midi, duration) => {
+    playFrequency(midiToFreq(midi), duration);
+  }, [playFrequency]);
+
+  const playSequence = useCallback(async (midiList, interval = 0.6, duration = 0.5) => {
+    for (let i = 0; i < midiList.length; i++) {
+      setTimeout(() => playMidi(midiList[i], duration), i * interval * 1000);
+    }
+  }, [playMidi]);
+
+  return h(AudioCtx.Provider, { value: { activated, ensureContext, playFrequency, playMidi, playSequence } }, children);
+}
+
+/* ============================================================
+   SYNTHÈSE VOCALE (TTS)
+   ============================================================ */
+
+function useTTS() {
+  const [voices, setVoices] = useState([]);
+  const [preferredVoiceName, setPreferredVoiceName] = useState(null);
+  const utteranceRef = useRef(null);
+
+  useEffect(() => {
+    const load = () => {
+      const all = window.speechSynthesis.getVoices();
+      const fr = all.filter(v => v.lang && v.lang.startsWith('fr'));
+      setVoices(fr);
+      if (!preferredVoiceName && fr.length) {
+        // Préférence : Thomas > Audrey > première voix fr
+        const thomas = fr.find(v => /thomas/i.test(v.name));
+        const audrey = fr.find(v => /audrey/i.test(v.name));
+        setPreferredVoiceName((thomas || audrey || fr[0]).name);
+      }
+    };
+    load();
+    window.speechSynthesis.onvoiceschanged = load;
+  }, []);
+
+  const speak = useCallback((text) => {
+    window.speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = 'fr-FR';
+    u.rate = 0.95;
+    u.pitch = 1.0;
+    const voice = voices.find(v => v.name === preferredVoiceName);
+    if (voice) u.voice = voice;
+    utteranceRef.current = u;
+    window.speechSynthesis.speak(u);
+  }, [voices, preferredVoiceName]);
+
+  const stop = useCallback(() => {
+    window.speechSynthesis.cancel();
+  }, []);
+
+  return { voices, preferredVoiceName, setPreferredVoiceName, speak, stop };
+}
+
+/* ============================================================
+   GESTION DONNÉES — localStorage cache + JSON du repo
+   ============================================================ */
+
+const DATA_FILES = ['progression', 'journal', 'tessiture', 'vocabulaire_enseignante'];
+const LS_KEY = 'chant.state.v1';
+const LS_LAST_MOD = 'chant.lastmod.v1';
+
+// Schémas initiaux — servent de fallback si les JSON du repo sont indisponibles
+const INITIAL_STATE = {
+  progression: {
+    version: '1.0.0',
+    changelog: [{ date: new Date().toISOString().slice(0,10), entry: 'Initialisation MVP' }],
+    bloc_courant: 'bloc1-s1',
+    lecon_courante: 'bloc1-s1-l1',
+    lecons: {
+      'bloc1-s1-l1': { statut: 'non_demarree', date_demarrage: null, date_completion: null, duree_reelle_minutes: null },
+      'bloc1-s1-l2': { statut: 'non_demarree', date_demarrage: null, date_completion: null, duree_reelle_minutes: null },
+      'bloc1-s1-l3': { statut: 'non_demarree', date_demarrage: null, date_completion: null, duree_reelle_minutes: null },
+      'bloc1-s1-l4': { statut: 'non_demarree', date_demarrage: null, date_completion: null, duree_reelle_minutes: null },
+      'bloc1-s1-l5': { statut: 'non_demarree', date_demarrage: null, date_completion: null, duree_reelle_minutes: null },
+      'bloc1-s1-l6': { statut: 'non_demarree', date_demarrage: null, date_completion: null, duree_reelle_minutes: null },
+    },
+  },
+  journal: {
+    version: '1.0.0',
+    changelog: [{ date: new Date().toISOString().slice(0,10), entry: 'Initialisation MVP' }],
+    entries: [],
+  },
+  tessiture: {
+    version: '1.0.0',
+    changelog: [{ date: new Date().toISOString().slice(0,10), entry: 'Initialisation MVP' }],
+    date_evaluation: null,
+    notes: {
+      parlee_confortable: null,
+      grave_limite_confortable: null,
+      grave_limite_accessible: null,
+      passaggio_pressenti_bas: null,
+      aigu_limite_confortable_poitrine: null,
+      aigu_limite_confortable_global: null,
+      aigu_limite_accessible: null,
+    },
+    hypothese_fach: null,
+    fiabilite_estimation: null,
+    reevaluations: [],
+  },
+  vocabulaire_enseignante: {
+    version: '1.0.0',
+    changelog: [{ date: new Date().toISOString().slice(0,10), entry: 'Initialisation MVP' }],
+    termes: [],
+  },
+};
+
+async function loadStateFromRepo() {
+  const results = {};
+  for (const name of DATA_FILES) {
+    try {
+      const resp = await fetch(`./data/${name}.json?v=${Date.now()}`);
+      if (resp.ok) {
+        results[name] = await resp.json();
+      } else {
+        results[name] = JSON.parse(JSON.stringify(INITIAL_STATE[name]));
+      }
+    } catch (e) {
+      results[name] = JSON.parse(JSON.stringify(INITIAL_STATE[name]));
+    }
+  }
+  return results;
+}
+
+function loadStateFromLS() {
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch { return null; }
+}
+
+function saveStateToLS(state) {
+  try {
+    localStorage.setItem(LS_KEY, JSON.stringify(state));
+    localStorage.setItem(LS_LAST_MOD, new Date().toISOString());
+  } catch (e) {
+    console.warn('localStorage save failed', e);
+  }
+}
+
+function downloadJSON(filename, data) {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+/* ============================================================
+   COMPOSANT NOTE CLIQUABLE
+   ============================================================ */
+
+function Note({ name, showFrench = true, duration }) {
+  const audio = useContext(AudioCtx);
+  const midi = noteNameToMidi(name);
+  if (midi === null) return h('span', { className: 'text-red-600' }, `[note inconnue: ${name}]`);
+  const info = midiToNoteName(midi);
+  const freq = midiToFreq(midi).toFixed(1);
+
+  const label = showFrench ? `${info.en} / ${info.fr}` : info.en;
+
+  return h('button', {
+    onClick: () => audio.playMidi(midi, duration),
+    className: 'inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-soft hover:bg-rule active:bg-rule border border-rule transition-colors font-mono text-[0.85em] text-ink',
+    title: `Jouer ${info.en} (${freq} Hz)`,
+    'aria-label': `Jouer la note ${info.en}, équivalent français ${info.fr}, fréquence ${freq} hertz`,
+  },
+    h('span', { 'aria-hidden': 'true', className: 'text-accent text-[0.9em] leading-none' }, '▸'),
+    h('span', null, label)
+  );
+}
+
+/* ============================================================
+   MINI-CLAVIER
+   ============================================================ */
+
+function MiniKeyboard({ octaveStart = 3, octaveEnd = 5, showFrench = true }) {
+  const audio = useContext(AudioCtx);
+  const [labelMode, setLabelMode] = useState('both'); // 'en', 'fr', 'both', 'none'
+
+  const keys = [];
+  for (let oct = octaveStart; oct <= octaveEnd; oct++) {
+    for (let i = 0; i < 12; i++) {
+      const midi = (oct + 1) * 12 + i;
+      const isBlack = [1,3,6,8,10].includes(i);
+      keys.push({ midi, name: NOTE_NAMES_EN[i] + oct, nameFR: NOTE_NAMES_FR[i] + oct, isBlack, noteIdx: i, oct });
+    }
+  }
+  // On ajoute un C final
+  const lastMidi = (octaveEnd + 2) * 12;
+  keys.push({ midi: lastMidi, name: 'C' + (octaveEnd+1), nameFR: 'Do' + (octaveEnd+1), isBlack: false, noteIdx: 0, oct: octaveEnd+1 });
+
+  const whiteKeys = keys.filter(k => !k.isBlack);
+  const blackKeys = keys.filter(k => k.isBlack);
+
+  return h('div', { className: 'w-full' },
+    // Contrôles labels
+    h('div', { className: 'flex items-center justify-between mb-3 text-xs text-dim' },
+      h('div', { className: 'flex gap-1' },
+        ['Ang.', 'Fr.', 'Les deux', 'Aucun'].map((l, i) => {
+          const val = ['en','fr','both','none'][i];
+          return h('button', {
+            key: val,
+            onClick: () => setLabelMode(val),
+            className: `px-2 py-1 rounded border transition-colors ${labelMode === val ? 'bg-ink text-paper border-ink' : 'bg-paper border-rule hover:border-dim'}`
+          }, l);
+        })
+      ),
+      h('span', { className: 'font-mono' }, `Octaves ${octaveStart}–${octaveEnd+1}`)
+    ),
+    // Piano
+    h('div', { className: 'relative select-none', style: { height: '140px' } },
+      // Touches blanches
+      h('div', { className: 'absolute inset-0 flex' },
+        whiteKeys.map((k, i) => h('button', {
+          key: k.midi,
+          onClick: () => audio.playMidi(k.midi, 1.2),
+          className: 'flex-1 border border-rule bg-white hover:bg-soft active:bg-rule rounded-b-sm flex flex-col justify-end items-center pb-2 transition-colors',
+          'aria-label': `Jouer ${k.name}, ${k.nameFR}`,
+        },
+          h('span', { className: 'text-[10px] font-mono text-dim' }, labelMode==='en' || labelMode==='both' ? k.name : ''),
+          h('span', { className: 'text-[10px] font-mono text-dim' }, labelMode==='fr' || labelMode==='both' ? k.nameFR : '')
+        ))
+      ),
+      // Touches noires, positionnées en absolu
+      h('div', { className: 'absolute inset-0 pointer-events-none' },
+        (() => {
+          // Pour chaque touche blanche, on peut avoir une noire juste après
+          // Les positions relatives des noires par rapport aux blanches dans une octave :
+          // après C (C#), après D (D#), après F (F#), après G (G#), après A (A#)
+          const blackAfterWhite = { 0: 1, 1: 3, 3: 6, 4: 8, 5: 10 }; // whiteIdx in oct -> noteIdx noire
+          const whiteInOctave = [0, 2, 4, 5, 7, 9, 11];
+          const nWhite = whiteKeys.length;
+          const widthPerWhite = 100 / nWhite;
+
+          return whiteKeys.map((wk, i) => {
+            const whiteIdxInOct = whiteInOctave.indexOf(wk.noteIdx);
+            const blackNoteIdx = blackAfterWhite[whiteIdxInOct];
+            if (blackNoteIdx === undefined) return null;
+            // Vérifier qu'on n'est pas sur la dernière touche
+            if (i === nWhite - 1) return null;
+            const blackMidi = (wk.oct + 1) * 12 + blackNoteIdx;
+            const blackName = NOTE_NAMES_EN[blackNoteIdx] + wk.oct;
+            const blackNameFR = NOTE_NAMES_FR[blackNoteIdx] + wk.oct;
+            const left = (i + 1) * widthPerWhite - (widthPerWhite * 0.3);
+            return h('button', {
+              key: blackMidi,
+              onClick: () => audio.playMidi(blackMidi, 1.2),
+              className: 'absolute bg-ink hover:bg-dim active:bg-accent rounded-b-sm text-paper flex items-end justify-center pb-1 transition-colors pointer-events-auto',
+              style: {
+                left: `${left}%`,
+                width: `${widthPerWhite * 0.6}%`,
+                height: '60%',
+                top: 0,
+              },
+              'aria-label': `Jouer ${blackName}, ${blackNameFR}`,
+            },
+              h('span', { className: 'text-[9px] font-mono' },
+                labelMode==='en' ? blackName.replace(/\d/,'') : (labelMode==='fr' ? blackNameFR.replace(/\d/,'') : (labelMode==='both' ? blackName.replace(/\d/,'') : ''))
+              )
+            );
+          });
+        })()
+      )
+    )
+  );
+}
+
+/* ============================================================
+   CONTENU PÉDAGOGIQUE — LEÇONS
+   ============================================================ */
+
+const LESSONS = {
+  'bloc1-s1-l1': {
+    bloc: 'bloc1',
+    semaine: 1,
+    numero: 1,
+    titre: 'Son, fréquence, hauteur',
+    sousTitre: 'Ce qu\'on mesure quand on parle d\'une « note »',
+    dureeMinutes: 15,
+    objectif: 'Distinguer la vibration physique (fréquence en Hertz) et la perception (hauteur perçue). Comprendre que « une note » est une fréquence avec un nom conventionnel.',
+    prerequis: [],
+    sources: [
+      { auteur: 'McCoy', ouvrage: 'Your Voice: An Inside View', pages: 'Ch. 2, p. 17–19', note: 'Introduit A4 = 440 Hz et la distinction fréquence / hauteur.' },
+      { auteur: 'Henny', ouvrage: 'Beginning Singing', pages: 'passim', note: 'Approche narrative, utile pour le rappel en ré-écoute.' },
+    ],
+    render: Lesson1,
+  },
+  'bloc1-s1-l2': {
+    bloc: 'bloc1',
+    semaine: 1,
+    numero: 2,
+    titre: 'Le clavier comme carte',
+    sousTitre: 'Octaves, notes blanches, notation C4 / Do4',
+    dureeMinutes: 18,
+    objectif: 'Savoir ce que « C4 » signifie concrètement. Situer une note sur un clavier. Comprendre la structure en octaves et la correspondance notation anglo-saxonne / française.',
+    prerequis: ['bloc1-s1-l1'],
+    sources: [
+      { auteur: 'McCoy', ouvrage: 'Your Voice: An Inside View', pages: 'Ch. 2 + Appendix 2, p. 177', note: 'Tableau des fréquences par octave, référence de calibrage.' },
+      { auteur: 'Henny', ouvrage: 'Beginning Singing', pages: 'ch. "Where Registers Occur"', note: 'Relie le clavier aux registres vocaux — ancrage pratique.' },
+      { auteur: 'Bozeman', ouvrage: 'Practical Vocal Acoustics', pages: 'passim', note: 'Utilise la notation C4/D4 partout. Cette leçon est un pré-requis pour le lire.' },
+    ],
+    render: Lesson2,
+  },
+  'bloc1-s1-l3': {
+    bloc: 'bloc1',
+    semaine: 1,
+    numero: 3,
+    titre: 'Demi-tons, tons, notes noires',
+    sousTitre: 'Leçon en préparation',
+    dureeMinutes: 15,
+    objectif: 'Comprendre la division en 12 demi-tons par octave. Percevoir auditivement la différence entre un demi-ton et un ton.',
+    prerequis: ['bloc1-s1-l1', 'bloc1-s1-l2'],
+    sources: [],
+    render: LessonComingSoon,
+  },
+  'bloc1-s1-l4': {
+    bloc: 'bloc1',
+    semaine: 1,
+    numero: 4,
+    titre: 'Gammes et intervalles de base',
+    sousTitre: 'Leçon en préparation',
+    dureeMinutes: 18,
+    objectif: 'Identifier à l\'oreille quelques intervalles fondamentaux. Comprendre la structure de la gamme majeure.',
+    prerequis: ['bloc1-s1-l1', 'bloc1-s1-l2', 'bloc1-s1-l3'],
+    sources: [],
+    render: LessonComingSoon,
+  },
+  'bloc1-s1-l5': {
+    bloc: 'bloc1',
+    semaine: 1,
+    numero: 5,
+    titre: 'Voix parlée : ta fréquence fondamentale du confort',
+    sousTitre: 'Leçon en préparation',
+    dureeMinutes: 15,
+    objectif: 'Localiser sa note parlée confortable — première ancre vers l\'identification de la tessiture.',
+    prerequis: ['bloc1-s1-l1', 'bloc1-s1-l2'],
+    sources: [],
+    render: LessonComingSoon,
+  },
+  'bloc1-s1-l6': {
+    bloc: 'bloc1',
+    semaine: 1,
+    numero: 6,
+    titre: 'Cartographier ta tessiture',
+    sousTitre: 'Leçon en préparation',
+    dureeMinutes: 20,
+    objectif: 'Identifier approximativement ta note la plus basse, ta note la plus haute en poitrine, et ta zone de bascule (premier repérage du passaggio personnel).',
+    prerequis: ['bloc1-s1-l1', 'bloc1-s1-l2', 'bloc1-s1-l5'],
+    sources: [],
+    render: LessonComingSoon,
+  },
+};
+
+const LESSON_ORDER = ['bloc1-s1-l1','bloc1-s1-l2','bloc1-s1-l3','bloc1-s1-l4','bloc1-s1-l5','bloc1-s1-l6'];
+
+/* ============================================================
+   LEÇON 1 — Son, fréquence, hauteur
+   ============================================================ */
+
+function Lesson1({ onComplete }) {
+  const audio = useContext(AudioCtx);
+  const [quiz1, setQuiz1] = useState(null);
+  const [quiz2, setQuiz2] = useState(null);
+
+  const sectionCls = "mt-8 first:mt-0";
+  const h2Cls = "font-serif-display text-2xl text-ink mt-10 mb-4 tracking-tight";
+  const pCls = "text-[16px] leading-[1.7] text-ink mb-4 hyphen";
+
+  return h('div', { className: 'max-w-prose mx-auto' },
+    // Intro
+    h('section', { className: sectionCls },
+      h('p', { className: pCls + ' text-dim italic font-serif-body' },
+        'Cette leçon est la première d\'un parcours qui te suivra pendant plusieurs mois. On commence très en amont, avant même la notion de « note musicale ». L\'objectif : que tu saches exactement de quoi on parle quand, plus tard, Bozeman ou McCoy écriront « C4 » ou « 262 Hz ».'
+      ),
+    ),
+
+    // Section 1
+    h('section', { className: sectionCls },
+      h('h2', { className: h2Cls }, '1. Un son, c\'est une vibration'),
+      h('p', { className: pCls },
+        'Quand un objet vibre — une corde de guitare pincée, tes cordes vocales quand tu parles, un diapason que l\'on frappe — il fait bouger l\'air autour de lui. Cette ondulation de pression se propage et arrive jusqu\'à ton oreille, qui la convertit en signal nerveux. C\'est ce qu\'on appelle un ',
+        h('em', { className: 'font-serif-body italic' }, 'son'),
+        '.'
+      ),
+      h('p', { className: pCls },
+        'Une vibration a une ',
+        h('strong', null, 'vitesse'),
+        ' : le nombre d\'allers-retours par seconde. C\'est ce qu\'on appelle la ',
+        h('strong', null, 'fréquence'),
+        ', mesurée en ',
+        h('strong', null, 'Hertz'),
+        ' (abréviation : Hz). Un Hz = une oscillation par seconde.'
+      ),
+      h('p', { className: pCls },
+        'Si une corde vibre 100 fois par seconde, elle produit un son à 100 Hz. Si elle vibre 1000 fois par seconde, elle produit un son à 1000 Hz. Plus la fréquence est élevée, plus le son est ',
+        h('em', { className: 'font-serif-body italic' }, 'aigu'),
+        ' à l\'oreille. Plus elle est basse, plus il est ',
+        h('em', { className: 'font-serif-body italic' }, 'grave'),
+        '.'
+      ),
+    ),
+
+    // Section 2
+    h('section', { className: sectionCls },
+      h('h2', { className: h2Cls }, '2. Écoute par toi-même'),
+      h('p', { className: pCls },
+        'Avant d\'aller plus loin, active ton audio (clique sur les boutons ci-dessous). Je te propose quatre sons, de très grave à très aigu. Ce sont tous des sons purs : aucune complexité de timbre, juste une fréquence unique.'
+      ),
+
+      h('div', { className: 'my-6 p-5 bg-soft/50 border border-rule rounded-sm' },
+        h('div', { className: 'space-y-3' },
+          [
+            { label: 'Très grave', midi: 45, hz: 110, comment: 'A2 — autour de la voix parlée masculine basse' },
+            { label: 'Grave', midi: 57, hz: 220, comment: 'A3' },
+            { label: 'Référence', midi: 69, hz: 440, comment: 'A4 — le La du diapason, standard mondial pour l\'accordage' },
+            { label: 'Aigu', midi: 81, hz: 880, comment: 'A5 — voix de soprano' },
+          ].map(s => h('div', { key: s.midi, className: 'flex items-center gap-3' },
+            h('button', {
+              onClick: () => audio.playMidi(s.midi, 2),
+              className: 'flex-shrink-0 px-3 py-2 bg-paper border border-rule hover:border-ink hover:bg-soft rounded-sm transition-colors font-mono text-xs',
+            }, '▸ Jouer'),
+            h('div', { className: 'flex-1 min-w-0' },
+              h('div', { className: 'text-sm font-medium' }, s.label, ' — ', h('span', { className: 'font-mono text-dim' }, s.hz, ' Hz')),
+              h('div', { className: 'text-xs text-dim mt-0.5' }, s.comment)
+            )
+          ))
+        )
+      ),
+
+      h('p', { className: pCls },
+        'Remarque : entre le premier et le dernier son, la fréquence a été multipliée par 8. Autrement dit, la corde vibrerait 8 fois plus vite. Ton oreille, elle, ne perçoit pas un son « 8 fois plus haut » : elle perçoit trois marches d\'escalier appelées ',
+        h('strong', null, 'octaves'),
+        '. On y revient à la leçon suivante.'
+      ),
+    ),
+
+    // Section 3
+    h('section', { className: sectionCls },
+      h('h2', { className: h2Cls }, '3. Fréquence n\'est pas hauteur'),
+      h('p', { className: pCls },
+        'C\'est une distinction subtile mais importante. ',
+        h('strong', null, 'La fréquence'),
+        ' est une mesure objective : 440 Hz, c\'est 440 vibrations par seconde, mesurables avec un instrument. ',
+        h('strong', null, 'La hauteur'),
+        ' est la perception subjective que ton cerveau construit à partir de cette fréquence — influencée par le timbre, le volume, le contexte, et même ton état physique.'
+      ),
+      h('p', { className: pCls, },
+        'McCoy insiste sur ce point dès le chapitre 2 de ',
+        h('em', { className: 'font-serif-body italic' }, 'Your Voice'),
+        ' : dans la pratique courante, on peut les confondre sans conséquence, mais dans la littérature scientifique et pédagogique que tu vas lire, la distinction revient régulièrement. Mieux vaut la connaître.'
+      ),
+      h('div', { className: 'my-6 p-4 border-l-2 border-accent bg-soft/30 text-sm text-ink' },
+        h('div', { className: 'text-[11px] uppercase tracking-widest text-accent mb-2 font-sans' }, 'À retenir'),
+        h('p', { className: 'leading-relaxed' }, 'Une ',
+          h('strong', null, 'note'), ' est un son dont la fréquence a reçu un ',
+          h('strong', null, 'nom'), ' dans un système musical. La note ',
+          h(Note, { name: 'A4' }), ' correspond, par convention internationale, à 440 Hz. Changer la fréquence de référence (certains orchestres utilisent 442, les baroqueux 415) change le son physique produit par la même note écrite.'
+        )
+      ),
+    ),
+
+    // Quiz actif
+    h('section', { className: sectionCls },
+      h('h2', { className: h2Cls }, '4. Vérification rapide'),
+      h('p', { className: pCls }, 'Deux questions pour toi. Pas de jugement : si tu hésites, relis la section correspondante.'),
+
+      h('div', { className: 'space-y-6' },
+        // Q1
+        h(QuizBlock, {
+          question: 'Si un son a une fréquence de 200 Hz, ses vibrations se produisent combien de fois par seconde ?',
+          options: [
+            { id: 'a', label: '20 fois' },
+            { id: 'b', label: '200 fois' },
+            { id: 'c', label: 'ça dépend de la hauteur perçue' },
+          ],
+          correctId: 'b',
+          explanation: 'Hz = vibrations par seconde. Une fréquence de 200 Hz, c\'est 200 oscillations dans une seconde. Par définition.',
+          state: quiz1, setState: setQuiz1,
+        }),
+        // Q2 — perception
+        h(QuizBlock, {
+          question: 'Lequel des deux sons suivants est le plus grave ?',
+          audioOptions: [
+            { id: 'a', midi: 52, label: 'Son A' }, // E3
+            { id: 'b', midi: 64, label: 'Son B' }, // E4
+          ],
+          correctId: 'a',
+          explanation: 'Le son A est à environ 165 Hz, le son B à 330 Hz. Le son A vibre deux fois moins vite, donc il est plus grave. C\'est un intervalle d\'octave — on y revient juste après.',
+          state: quiz2, setState: setQuiz2,
+        }),
+      )
+    ),
+
+    // Synthèse
+    h('section', { className: sectionCls },
+      h('h2', { className: h2Cls }, '5. En résumé'),
+      h('ul', { className: 'space-y-2 text-[15px] leading-relaxed ml-4' },
+        h('li', { className: 'relative pl-3 before:content-["—"] before:absolute before:left-0 before:text-accent' },
+          'Un son = une vibration qui se propage.'),
+        h('li', { className: 'relative pl-3 before:content-["—"] before:absolute before:left-0 before:text-accent' },
+          'La fréquence en Hz mesure le nombre de vibrations par seconde.'),
+        h('li', { className: 'relative pl-3 before:content-["—"] before:absolute before:left-0 before:text-accent' },
+          'Plus la fréquence est haute, plus le son est perçu aigu.'),
+        h('li', { className: 'relative pl-3 before:content-["—"] before:absolute before:left-0 before:text-accent' },
+          'Fréquence (objective) et hauteur (perçue) sont liées mais ne sont pas strictement identiques.'),
+        h('li', { className: 'relative pl-3 before:content-["—"] before:absolute before:left-0 before:text-accent' },
+          'La note ', h(Note, { name: 'A4' }), ' = 440 Hz par convention internationale.'),
+      )
+    ),
+
+    h(CompletionFooter, { onComplete, lessonId: 'bloc1-s1-l1' })
+  );
+}
+
+/* ============================================================
+   LEÇON 2 — Le clavier comme carte
+   ============================================================ */
+
+function Lesson2({ onComplete }) {
+  const audio = useContext(AudioCtx);
+  const [quiz1, setQuiz1] = useState(null);
+  const [quiz2, setQuiz2] = useState(null);
+
+  const sectionCls = "mt-8 first:mt-0";
+  const h2Cls = "font-serif-display text-2xl text-ink mt-10 mb-4 tracking-tight";
+  const pCls = "text-[16px] leading-[1.7] text-ink mb-4 hyphen";
+
+  return h('div', { className: 'max-w-prose mx-auto' },
+    h('section', { className: sectionCls },
+      h('p', { className: pCls + ' text-dim italic font-serif-body' },
+        'On te donne maintenant la carte sur laquelle toutes les notes vont être placées pour la suite du parcours. Le clavier n\'est pas réservé aux pianistes : c\'est surtout un système visuel de repérage, et à ce titre il est presque universel en pédagogie vocale.'
+      ),
+    ),
+
+    h('section', { className: sectionCls },
+      h('h2', { className: h2Cls }, '1. Sept noms pour les notes'),
+      h('p', { className: pCls },
+        'Il y a sept noms de notes qui se répètent à l\'infini. Dans la tradition française, on les nomme :'
+      ),
+      h('div', { className: 'flex flex-wrap gap-2 my-4 font-mono text-sm' },
+        ['Do','Ré','Mi','Fa','Sol','La','Si'].map(n =>
+          h('span', { key: n, className: 'px-3 py-1.5 bg-soft border border-rule rounded-sm' }, n)
+        )
+      ),
+      h('p', { className: pCls },
+        'Dans la tradition anglo-saxonne (celle utilisée par tous les livres de ton corpus — Bozeman, McCoy, Henny, Dayme), on les nomme par des lettres :'
+      ),
+      h('div', { className: 'flex flex-wrap gap-2 my-4 font-mono text-sm' },
+        ['C','D','E','F','G','A','B'].map(n =>
+          h('span', { key: n, className: 'px-3 py-1.5 bg-soft border border-rule rounded-sm' }, n)
+        )
+      ),
+      h('p', { className: pCls },
+        'La correspondance : ', h('span', { className: 'font-mono' }, 'C = Do, D = Ré, E = Mi, F = Fa, G = Sol, A = La, B = Si'), '.'
+      ),
+      h('div', { className: 'my-6 p-4 border-l-2 border-accent bg-soft/30 text-sm' },
+        h('div', { className: 'text-[11px] uppercase tracking-widest text-accent mb-2 font-sans' }, 'Pourquoi les deux systèmes'),
+        h('p', { className: 'leading-relaxed' },
+          'Tu vas rencontrer la notation anglo-saxonne partout dans les sources de ton parcours, parce qu\'elle est la norme internationale dans la littérature scientifique et pédagogique vocale. Tu vas rencontrer la notation française dans ta pratique avec ton enseignante, parce que c\'est celle enseignée en France. Il faut que les deux te deviennent familières. Dans toute cette application, les notes affichent les deux : ', h(Note, { name: 'A4' }), '.'
+        )
+      )
+    ),
+
+    h('section', { className: sectionCls },
+      h('h2', { className: h2Cls }, '2. L\'octave : une marche d\'escalier'),
+      h('p', { className: pCls },
+        'Si tu joues successivement Do, Ré, Mi, Fa, Sol, La, Si… tu arrives au Do suivant. Ce Do-là porte le même nom, mais il est plus aigu. Précisément : sa fréquence est le double du précédent. Écoute :'
+      ),
+      h('div', { className: 'my-5 flex items-center gap-3 flex-wrap' },
+        h(Note, { name: 'C3' }),
+        h('span', { className: 'text-dim' }, '→'),
+        h(Note, { name: 'C4' }),
+        h('span', { className: 'text-dim' }, '→'),
+        h(Note, { name: 'C5' }),
+        h('button', {
+          onClick: () => audio.playSequence([48, 60, 72], 0.8, 0.7),
+          className: 'ml-auto px-3 py-1.5 bg-ink text-paper rounded-sm text-xs hover:bg-dim transition-colors',
+        }, '▸ Jouer les trois en séquence')
+      ),
+      h('p', { className: pCls },
+        'C3 (environ 131 Hz), C4 (environ 262 Hz), C5 (environ 523 Hz). Chaque Do suivant a le double de la fréquence du précédent. C\'est ce qu\'on appelle une ',
+        h('strong', null, 'octave'),
+        '.'
+      ),
+      h('p', { className: pCls },
+        'Le chiffre qui suit le nom de la note (le ',
+        h('span', { className: 'font-mono bg-soft px-1' }, '4'),
+        ' dans ',
+        h('span', { className: 'font-mono bg-soft px-1' }, 'C4'),
+        ') indique dans quelle octave on se trouve. Sur un piano standard, les octaves sont numérotées de 0 (les sons les plus graves) à 8 (les sons les plus aigus). ',
+        h(Note, { name: 'C4' }),
+        ' est le fameux « Do du milieu » (middle C en anglais), situé à peu près au centre du clavier.'
+      ),
+      h('div', { className: 'my-6 p-4 border-l-2 border-dim bg-soft/30 text-sm' },
+        h('div', { className: 'text-[11px] uppercase tracking-widest text-dim mb-2 font-sans' }, 'Pour situer'),
+        h('p', { className: 'leading-relaxed' },
+          'La voix parlée masculine moyenne tourne autour de ', h(Note, { name: 'A2' }), ' à ', h(Note, { name: 'C3' }), '. La voix parlée féminine moyenne tourne autour de ', h(Note, { name: 'G3' }), ' à ', h(Note, { name: 'C4' }), '. Le La du diapason, ', h(Note, { name: 'A4' }), ' = 440 Hz, est plus haut que la voix parlée de la plupart des gens. Ce sont des repères approximatifs qu\'on affinera à la leçon 5 sur ta propre voix parlée.'
+        )
+      )
+    ),
+
+    h('section', { className: sectionCls },
+      h('h2', { className: h2Cls }, '3. Le clavier à explorer'),
+      h('p', { className: pCls },
+        'Voici un mini-clavier. Tu peux cliquer sur chaque touche pour entendre la note. Les touches blanches sont les sept notes nommées ; les touches noires, on y vient à la leçon suivante.'
+      ),
+      h('div', { className: 'my-6 p-4 bg-soft/40 border border-rule rounded-sm' },
+        h(MiniKeyboard, { octaveStart: 3, octaveEnd: 4 })
+      ),
+      h('p', { className: pCls },
+        'Prends quelques minutes. Clique sur différentes notes. Essaie de monter une octave en partant de ', h(Note, { name: 'C3' }), ' : C3 → D3 → E3 → F3 → G3 → A3 → B3 → C4. Écoute comment le C4 « ressemble » au C3 mais plus haut.'
+      ),
+    ),
+
+    h('section', { className: sectionCls },
+      h('h2', { className: h2Cls }, '4. Vérification rapide'),
+
+      h('div', { className: 'space-y-6' },
+        h(QuizBlock, {
+          question: 'Quelle note est située une octave au-dessus de C3 ?',
+          options: [
+            { id: 'a', label: 'C2' },
+            { id: 'b', label: 'C4' },
+            { id: 'c', label: 'G3' },
+          ],
+          correctId: 'b',
+          explanation: 'Une octave plus haut = même nom de note, chiffre incrémenté de 1. C3 → C4. C2 serait une octave plus bas. G3 est une quinte plus haute que C3 (on verra ça leçon 4).',
+          state: quiz1, setState: setQuiz1,
+        }),
+        h(QuizBlock, {
+          question: 'Si C4 ≈ 262 Hz, quelle est approximativement la fréquence de C5 ?',
+          options: [
+            { id: 'a', label: '131 Hz' },
+            { id: 'b', label: '392 Hz' },
+            { id: 'c', label: '524 Hz' },
+          ],
+          correctId: 'c',
+          explanation: 'Une octave plus haut = fréquence doublée. 262 × 2 = 524. La valeur exacte est 523,25 Hz (McCoy, Appendix 2). 131 Hz serait une octave plus bas (C3), et 392 Hz est la fréquence de G4.',
+          state: quiz2, setState: setQuiz2,
+        }),
+      )
+    ),
+
+    h('section', { className: sectionCls },
+      h('h2', { className: h2Cls }, '5. En résumé'),
+      h('ul', { className: 'space-y-2 text-[15px] leading-relaxed ml-4' },
+        h('li', { className: 'relative pl-3 before:content-["—"] before:absolute before:left-0 before:text-accent' },
+          'Sept noms de notes, deux systèmes (français / anglo-saxon), même chose.'),
+        h('li', { className: 'relative pl-3 before:content-["—"] before:absolute before:left-0 before:text-accent' },
+          'Une octave : même nom de note, fréquence doublée, sensation de « même note en plus haut ».'),
+        h('li', { className: 'relative pl-3 before:content-["—"] before:absolute before:left-0 before:text-accent' },
+          'Le chiffre après le nom indique l\'octave. ', h(Note, { name: 'C4' }), ' = Do du milieu.'),
+        h('li', { className: 'relative pl-3 before:content-["—"] before:absolute before:left-0 before:text-accent' },
+          'Le clavier n\'est pas réservé aux pianistes : c\'est un système de repérage universel en pédagogie vocale.'),
+      )
+    ),
+
+    h(CompletionFooter, { onComplete, lessonId: 'bloc1-s1-l2' })
+  );
+}
+
+/* ============================================================
+   LEÇONS À VENIR (placeholder pour l5, l6 etc.)
+   ============================================================ */
+
+function LessonComingSoon({ lesson }) {
+  return h('div', { className: 'max-w-prose mx-auto py-16 text-center' },
+    h('div', { className: 'inline-block px-4 py-1 text-xs uppercase tracking-widest text-accent border border-accent/30 rounded-full mb-6' }, 'En préparation'),
+    h('h2', { className: 'font-serif-display text-3xl mb-4' }, 'Leçon en cours de rédaction'),
+    h('p', { className: 'text-dim max-w-md mx-auto leading-relaxed' }, 'Cette leçon sera ajoutée dans la prochaine itération du MVP, une fois que les leçons 1 et 2 auront été validées sur l\'ergonomie et le ton pédagogique.'),
+    lesson?.prerequis?.length ? h('div', { className: 'mt-8 text-sm text-dim' },
+      'Pré-requis : ', lesson.prerequis.map(p => LESSONS[p]?.titre).join(' · ')
+    ) : null
+  );
+}
+
+/* ============================================================
+   COMPOSANTS RÉUTILISABLES
+   ============================================================ */
+
+function QuizBlock({ question, options, audioOptions, correctId, explanation, state, setState }) {
+  const audio = useContext(AudioCtx);
+  const chosen = state?.chosen;
+  const submitted = state?.submitted;
+
+  return h('div', { className: 'p-5 border border-rule rounded-sm bg-paper' },
+    h('p', { className: 'font-medium text-[15px] mb-4' }, question),
+    h('div', { className: 'space-y-2' },
+      (options || []).map(o => {
+        const isChosen = chosen === o.id;
+        const isCorrect = submitted && o.id === correctId;
+        const isWrong = submitted && isChosen && o.id !== correctId;
+        return h('button', {
+          key: o.id,
+          onClick: () => !submitted && setState({ chosen: o.id, submitted: false }),
+          disabled: submitted,
+          className: `w-full text-left px-3 py-2 border rounded-sm transition-colors text-sm ${
+            isCorrect ? 'bg-green-50 border-green-400' :
+            isWrong ? 'bg-red-50 border-red-400' :
+            isChosen ? 'bg-soft border-ink' : 'bg-paper border-rule hover:border-dim'
+          }`,
+        }, o.label);
+      }),
+      (audioOptions || []).map(o => {
+        const isChosen = chosen === o.id;
+        const isCorrect = submitted && o.id === correctId;
+        const isWrong = submitted && isChosen && o.id !== correctId;
+        return h('div', { key: o.id, className: 'flex gap-2 items-center' },
+          h('button', {
+            onClick: () => audio.playMidi(o.midi, 1.5),
+            className: 'flex-shrink-0 px-3 py-2 bg-paper border border-rule hover:border-ink rounded-sm font-mono text-xs',
+          }, '▸'),
+          h('button', {
+            onClick: () => !submitted && setState({ chosen: o.id, submitted: false }),
+            disabled: submitted,
+            className: `flex-1 text-left px-3 py-2 border rounded-sm transition-colors text-sm ${
+              isCorrect ? 'bg-green-50 border-green-400' :
+              isWrong ? 'bg-red-50 border-red-400' :
+              isChosen ? 'bg-soft border-ink' : 'bg-paper border-rule hover:border-dim'
+            }`,
+          }, o.label)
+        );
+      }),
+    ),
+    chosen && !submitted ? h('button', {
+      onClick: () => setState({ ...state, submitted: true }),
+      className: 'mt-4 px-4 py-2 bg-ink text-paper rounded-sm text-sm hover:bg-dim transition-colors',
+    }, 'Valider') : null,
+    submitted ? h('div', { className: `mt-4 p-3 rounded-sm text-sm leading-relaxed ${chosen === correctId ? 'bg-green-50 text-green-900' : 'bg-soft text-ink'}` },
+      h('div', { className: 'font-medium mb-1' }, chosen === correctId ? '✓ Correct' : '→ La bonne réponse était une autre'),
+      h('div', null, explanation)
+    ) : null
+  );
+}
+
+function CompletionFooter({ onComplete, lessonId }) {
+  const [marked, setMarked] = useState(false);
+  return h('div', { className: 'mt-16 pt-8 border-t border-rule flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between' },
+    h('div', { className: 'text-sm text-dim' },
+      marked ? '✓ Leçon marquée comme complétée.' : 'Quand tu as terminé cette leçon :'
+    ),
+    h('button', {
+      onClick: () => { onComplete(lessonId); setMarked(true); },
+      disabled: marked,
+      className: `px-5 py-2.5 rounded-sm text-sm transition-colors ${marked ? 'bg-soft text-dim border border-rule' : 'bg-ink text-paper hover:bg-dim'}`,
+    }, marked ? 'Complétée' : 'Marquer comme complétée')
+  );
+}
+
+/* ============================================================
+   VUE D'ENSEMBLE DU PARCOURS
+   ============================================================ */
+
+function Overview({ progression, onSelectLesson }) {
+  const blocs = [
+    { id: 'bloc1', titre: 'Fondations musicales minimales', actif: true },
+    { id: 'bloc2', titre: 'Anatomie et physiologie vocales', actif: false },
+    { id: 'bloc3', titre: 'Acoustique de la voix', actif: false },
+    { id: 'bloc4', titre: 'Pédagogie acoustique appliquée', actif: false },
+  ];
+
+  return h('div', { className: 'max-w-prose mx-auto py-8' },
+    h('header', { className: 'mb-12' },
+      h('div', { className: 'text-[11px] uppercase tracking-widest text-accent mb-3 font-sans' }, 'Parcours'),
+      h('h1', { className: 'font-serif-display text-4xl sm:text-5xl leading-tight mb-4' }, 'Pédagogie vocale'),
+      h('p', { className: 'text-dim text-[15px] leading-relaxed max-w-md' },
+        'Parcours personnel structuré en quatre blocs. Objectif à six mois : comprendre et pratiquer le passaggio masculin.'
+      )
+    ),
+
+    h('div', { className: 'space-y-8' },
+      blocs.map(b => {
+        const isActif = b.actif;
+        return h('section', { key: b.id, className: isActif ? '' : 'opacity-50' },
+          h('div', { className: 'flex items-baseline gap-3 mb-4' },
+            h('span', { className: 'font-mono text-xs text-dim' }, b.id.replace('bloc','Bloc ')),
+            h('h2', { className: 'font-serif-display text-xl' }, b.titre),
+            isActif ? null : h('span', { className: 'text-xs text-dim italic' }, '— à venir')
+          ),
+          isActif ? h('div', { className: 'space-y-2 ml-0' },
+            LESSON_ORDER.map(lid => {
+              const lesson = LESSONS[lid];
+              const state = progression?.lecons?.[lid];
+              const completed = state?.statut === 'completee';
+              const started = state?.statut === 'en_cours';
+              return h('button', {
+                key: lid,
+                onClick: () => onSelectLesson(lid),
+                className: 'w-full text-left p-3 border border-rule rounded-sm hover:border-ink hover:bg-soft/30 transition-colors flex items-start gap-3',
+              },
+                h('div', { className: 'flex-shrink-0 w-6 h-6 rounded-full border flex items-center justify-center mt-0.5 font-mono text-[11px] ' + (completed ? 'bg-accent text-paper border-accent' : started ? 'border-ink' : 'border-rule text-dim') },
+                  completed ? '✓' : lesson.numero
+                ),
+                h('div', { className: 'flex-1 min-w-0' },
+                  h('div', { className: 'font-medium text-[15px]' }, lesson.titre),
+                  h('div', { className: 'text-xs text-dim mt-0.5 truncate' }, lesson.sousTitre),
+                  h('div', { className: 'text-[11px] text-dim mt-1 font-mono' }, '≈ ', lesson.dureeMinutes, ' min')
+                )
+              );
+            })
+          ) : null
+        );
+      })
+    )
+  );
+}
+
+/* ============================================================
+   VUE LEÇON
+   ============================================================ */
+
+function LessonView({ lessonId, progression, setProgression, onBack }) {
+  const lesson = LESSONS[lessonId];
+  const tts = useTTS();
+  const [showTTSPanel, setShowTTSPanel] = useState(false);
+  const [ttsActive, setTTSActive] = useState(false);
+  const contentRef = useRef(null);
+
+  // Marquer comme démarrée
+  useEffect(() => {
+    if (!lesson) return;
+    const current = progression.lecons[lessonId];
+    if (current.statut === 'non_demarree') {
+      setProgression(prev => ({
+        ...prev,
+        lecon_courante: lessonId,
+        lecons: {
+          ...prev.lecons,
+          [lessonId]: {
+            ...prev.lecons[lessonId],
+            statut: 'en_cours',
+            date_demarrage: new Date().toISOString(),
+          },
+        },
+      }));
+    }
+  }, [lessonId]);
+
+  const handleComplete = useCallback((id) => {
+    setProgression(prev => ({
+      ...prev,
+      lecons: {
+        ...prev.lecons,
+        [id]: {
+          ...prev.lecons[id],
+          statut: 'completee',
+          date_completion: new Date().toISOString(),
+        },
+      },
+    }));
+  }, [setProgression]);
+
+  const playTTS = () => {
+    if (!contentRef.current) return;
+    const text = contentRef.current.innerText;
+    tts.speak(text);
+    setTTSActive(true);
+  };
+
+  const stopTTS = () => {
+    tts.stop();
+    setTTSActive(false);
+  };
+
+  if (!lesson) return h('div', null, 'Leçon introuvable.');
+
+  const Renderer = lesson.render;
+
+  return h('div', { className: 'py-6 sm:py-10 px-4 sm:px-6 max-w-3xl mx-auto fade-in' },
+    // Header leçon
+    h('header', { className: 'mb-10 no-print' },
+      h('button', {
+        onClick: onBack,
+        className: 'text-sm text-dim hover:text-ink transition-colors mb-6 inline-flex items-center gap-1',
+      }, '← ', 'Retour au parcours'),
+
+      h('div', { className: 'flex items-baseline gap-3 mb-3' },
+        h('span', { className: 'font-mono text-xs text-accent uppercase tracking-widest' }, 'Bloc 1 · Leçon ', lesson.numero),
+        h('span', { className: 'font-mono text-xs text-dim' }, '≈ ', lesson.dureeMinutes, ' min')
+      ),
+      h('h1', { className: 'font-serif-display text-3xl sm:text-4xl leading-tight mb-2' }, lesson.titre),
+      h('p', { className: 'text-dim text-[15px] font-serif-body italic' }, lesson.sousTitre),
+
+      // Barre TTS
+      h('div', { className: 'mt-6 flex flex-wrap items-center gap-2' },
+        h('button', {
+          onClick: ttsActive ? stopTTS : playTTS,
+          className: 'px-3 py-1.5 text-xs border border-rule hover:border-ink bg-paper rounded-sm transition-colors flex items-center gap-1.5',
+          title: 'Lecture audio de la leçon (voix Apple)',
+        }, ttsActive ? '■ Arrêter' : '▸ Écouter la leçon'),
+        h('button', {
+          onClick: () => setShowTTSPanel(!showTTSPanel),
+          className: 'px-2 py-1.5 text-xs text-dim hover:text-ink transition-colors',
+        }, 'voix ⌄'),
+      ),
+      showTTSPanel ? h('div', { className: 'mt-2 p-3 bg-soft/40 border border-rule rounded-sm text-xs' },
+        h('div', { className: 'text-dim mb-2' }, 'Les termes techniques anglais (voce chiusa, F1, H2…) seront mal prononcés par la synthèse vocale. Utilisable pour ré-écoute, pas pour apprentissage initial.'),
+        h('div', { className: 'flex flex-wrap gap-1' },
+          tts.voices.map(v => h('button', {
+            key: v.name,
+            onClick: () => tts.setPreferredVoiceName(v.name),
+            className: `px-2 py-1 text-[11px] border rounded transition-colors ${tts.preferredVoiceName === v.name ? 'bg-ink text-paper border-ink' : 'bg-paper border-rule hover:border-dim'}`,
+          }, v.name))
+        )
+      ) : null
+    ),
+
+    // Objectif et sources
+    h('div', { className: 'mb-10 p-4 bg-soft/40 border border-rule rounded-sm text-sm no-print' },
+      h('div', { className: 'mb-3' },
+        h('div', { className: 'text-[10px] uppercase tracking-widest text-accent mb-1 font-sans' }, 'Objectif'),
+        h('p', { className: 'text-ink leading-relaxed' }, lesson.objectif)
+      ),
+      lesson.sources.length ? h('div', null,
+        h('div', { className: 'text-[10px] uppercase tracking-widest text-accent mb-1 mt-3 font-sans' }, 'Sources mobilisées'),
+        h('ul', { className: 'space-y-1 text-xs' },
+          lesson.sources.map((s, i) => h('li', { key: i, className: 'text-dim leading-relaxed' },
+            h('span', { className: 'font-medium text-ink' }, s.auteur),
+            ', ',
+            h('em', { className: 'font-serif-body italic' }, s.ouvrage),
+            ' — ',
+            s.pages,
+            s.note ? h('span', { className: 'block ml-2 mt-0.5' }, s.note) : null
+          ))
+        )
+      ) : null
+    ),
+
+    // Corps de la leçon
+    h('div', { ref: contentRef, className: 'font-serif-body' },
+      h(Renderer, { onComplete: handleComplete, lesson })
+    )
+  );
+}
+
+/* ============================================================
+   JOURNAL
+   ============================================================ */
+
+function JournalView({ journal, setJournal, onClose }) {
+  const [showForm, setShowForm] = useState(false);
+  const [draft, setDraft] = useState({
+    type: 'lecon',
+    lecon_associee: '',
+    duree_minutes: '',
+    notes_libres: '',
+    ressentis_vocaux: '',
+    questions_pour_claude: '',
+  });
+
+  const addEntry = () => {
+    const entry = {
+      id: crypto.randomUUID(),
+      date: new Date().toISOString(),
+      ...draft,
+      duree_minutes: draft.duree_minutes ? parseInt(draft.duree_minutes) : null,
+      vocabulaire_enseignante: [],
+    };
+    setJournal(prev => ({
+      ...prev,
+      entries: [entry, ...prev.entries],
+    }));
+    setDraft({ type: 'lecon', lecon_associee: '', duree_minutes: '', notes_libres: '', ressentis_vocaux: '', questions_pour_claude: '' });
+    setShowForm(false);
+  };
+
+  return h('div', { className: 'fixed inset-0 bg-paper z-50 overflow-y-auto' },
+    h('div', { className: 'max-w-2xl mx-auto py-8 px-4 sm:px-6' },
+      h('div', { className: 'flex items-center justify-between mb-8' },
+        h('h2', { className: 'font-serif-display text-3xl' }, 'Journal'),
+        h('button', { onClick: onClose, className: 'text-sm text-dim hover:text-ink' }, '✕ Fermer')
+      ),
+
+      !showForm ? h('button', {
+        onClick: () => setShowForm(true),
+        className: 'w-full mb-6 p-4 border border-dashed border-rule hover:border-ink rounded-sm text-left text-sm text-dim hover:text-ink transition-colors',
+      }, '+ Nouvelle entrée') : h('div', { className: 'mb-6 p-5 border border-rule rounded-sm space-y-3' },
+        h('div', { className: 'flex gap-2' },
+          ['lecon','pratique_libre','cours_enseignante'].map(t => h('button', {
+            key: t,
+            onClick: () => setDraft({ ...draft, type: t }),
+            className: `px-3 py-1 text-xs rounded-sm border transition-colors ${draft.type === t ? 'bg-ink text-paper border-ink' : 'bg-paper border-rule hover:border-dim'}`,
+          }, t.replace('_',' ')))
+        ),
+        h('input', {
+          type: 'number', placeholder: 'Durée (min, optionnel)', value: draft.duree_minutes,
+          onChange: e => setDraft({ ...draft, duree_minutes: e.target.value }),
+          className: 'w-full px-3 py-2 border border-rule rounded-sm text-sm bg-paper',
+        }),
+        h('textarea', {
+          placeholder: 'Notes libres',
+          value: draft.notes_libres,
+          onChange: e => setDraft({ ...draft, notes_libres: e.target.value }),
+          className: 'w-full px-3 py-2 border border-rule rounded-sm text-sm bg-paper resize-y min-h-[80px]',
+        }),
+        h('textarea', {
+          placeholder: 'Ressentis vocaux (sensations, difficultés)',
+          value: draft.ressentis_vocaux,
+          onChange: e => setDraft({ ...draft, ressentis_vocaux: e.target.value }),
+          className: 'w-full px-3 py-2 border border-rule rounded-sm text-sm bg-paper resize-y min-h-[80px]',
+        }),
+        h('textarea', {
+          placeholder: 'Questions pour Claude (optionnel)',
+          value: draft.questions_pour_claude,
+          onChange: e => setDraft({ ...draft, questions_pour_claude: e.target.value }),
+          className: 'w-full px-3 py-2 border border-rule rounded-sm text-sm bg-paper resize-y min-h-[60px]',
+        }),
+        h('div', { className: 'flex gap-2' },
+          h('button', { onClick: addEntry, className: 'px-4 py-2 bg-ink text-paper rounded-sm text-sm hover:bg-dim' }, 'Enregistrer'),
+          h('button', { onClick: () => setShowForm(false), className: 'px-4 py-2 border border-rule rounded-sm text-sm hover:border-dim' }, 'Annuler')
+        )
+      ),
+
+      journal.entries.length === 0 ? h('p', { className: 'text-dim text-sm text-center py-12 italic' }, 'Aucune entrée pour le moment.') :
+        h('div', { className: 'space-y-4' },
+          journal.entries.map(e => h('article', { key: e.id, className: 'p-4 border border-rule rounded-sm' },
+            h('div', { className: 'flex items-baseline justify-between mb-2' },
+              h('span', { className: 'text-xs text-accent uppercase tracking-wider font-mono' }, e.type.replace('_',' ')),
+              h('span', { className: 'text-xs text-dim font-mono' }, new Date(e.date).toLocaleDateString('fr-FR', { day:'numeric', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' }))
+            ),
+            e.duree_minutes ? h('div', { className: 'text-xs text-dim mb-2' }, e.duree_minutes, ' min') : null,
+            e.notes_libres ? h('p', { className: 'text-sm mb-2 whitespace-pre-wrap' }, e.notes_libres) : null,
+            e.ressentis_vocaux ? h('p', { className: 'text-sm text-dim mb-2 whitespace-pre-wrap border-l-2 border-rule pl-3' }, e.ressentis_vocaux) : null,
+            e.questions_pour_claude ? h('p', { className: 'text-sm mt-2 p-2 bg-soft/50 rounded-sm' },
+              h('span', { className: 'text-[10px] uppercase tracking-widest text-accent mr-2' }, 'Pour Claude'),
+              e.questions_pour_claude
+            ) : null
+          ))
+        )
+    )
+  );
+}
+
+/* ============================================================
+   EXPORT PANEL
+   ============================================================ */
+
+function ExportPanel({ state, onClose }) {
+  const exportAll = () => {
+    downloadJSON('progression.json', state.progression);
+    setTimeout(() => downloadJSON('journal.json', state.journal), 200);
+    setTimeout(() => downloadJSON('tessiture.json', state.tessiture), 400);
+    setTimeout(() => downloadJSON('vocabulaire_enseignante.json', state.vocabulaire_enseignante), 600);
+  };
+
+  return h('div', { className: 'fixed inset-0 bg-ink/40 z-50 flex items-center justify-center p-4' },
+    h('div', { className: 'bg-paper rounded-sm max-w-md w-full p-6 shadow-xl' },
+      h('h3', { className: 'font-serif-display text-xl mb-3' }, 'Exporter les données'),
+      h('p', { className: 'text-sm text-dim leading-relaxed mb-4' },
+        'Télécharge les 4 fichiers JSON. Copie-les ensuite dans le dossier ',
+        h('code', { className: 'font-mono bg-soft px-1' }, 'data/'),
+        ' de ton repo ', h('code', { className: 'font-mono bg-soft px-1' }, 'chant'), ', puis commit + push pour que la progression soit versionnée et disponible depuis GitHub Pages.'
+      ),
+      h('div', { className: 'flex gap-2' },
+        h('button', { onClick: exportAll, className: 'flex-1 px-4 py-2.5 bg-ink text-paper rounded-sm text-sm hover:bg-dim' }, 'Télécharger les 4 JSON'),
+        h('button', { onClick: onClose, className: 'px-4 py-2.5 border border-rule rounded-sm text-sm hover:border-dim' }, 'Fermer')
+      )
+    )
+  );
+}
+
+/* ============================================================
+   APP ROOT
+   ============================================================ */
+
+function App() {
+  const audio = useContext(AudioCtx);
+  const [state, setState] = useState(null); // null = en cours de chargement
+  const [view, setView] = useState({ type: 'overview' }); // overview | lesson | journal
+  const [showExport, setShowExport] = useState(false);
+  const [needsAudioActivation, setNeedsAudioActivation] = useState(true);
+
+  // Chargement initial : merge localStorage + JSON du repo
+  useEffect(() => {
+    (async () => {
+      const repoData = await loadStateFromRepo();
+      const lsData = loadStateFromLS();
+
+      if (lsData) {
+        // localStorage a priorité si plus récent (heuristique simple : existe = prioritaire)
+        setState({
+          progression: lsData.progression || repoData.progression,
+          journal: lsData.journal || repoData.journal,
+          tessiture: lsData.tessiture || repoData.tessiture,
+          vocabulaire_enseignante: lsData.vocabulaire_enseignante || repoData.vocabulaire_enseignante,
+        });
+      } else {
+        setState(repoData);
+      }
+    })();
+  }, []);
+
+  // Sauvegarde automatique dans localStorage
+  useEffect(() => {
+    if (state) saveStateToLS(state);
+  }, [state]);
+
+  const setProgression = useCallback((updater) => {
+    setState(prev => ({ ...prev, progression: typeof updater === 'function' ? updater(prev.progression) : updater }));
+  }, []);
+
+  const setJournal = useCallback((updater) => {
+    setState(prev => ({ ...prev, journal: typeof updater === 'function' ? updater(prev.journal) : updater }));
+  }, []);
+
+  const activateAudio = () => {
+    audio.ensureContext();
+    setNeedsAudioActivation(false);
+  };
+
+  if (!state) {
+    return h('div', { className: 'min-h-screen flex items-center justify-center text-dim' }, 'Chargement…');
+  }
+
+  return h('div', { className: 'min-h-screen bg-paper' },
+    // Barre supérieure
+    h('nav', { className: 'sticky top-0 z-30 bg-paper/95 backdrop-blur border-b border-rule px-4 sm:px-6 py-3 flex items-center justify-between no-print' },
+      h('button', {
+        onClick: () => setView({ type: 'overview' }),
+        className: 'font-serif-display text-lg hover:text-accent transition-colors',
+      }, 'Chant'),
+      h('div', { className: 'flex items-center gap-1' },
+        h('button', {
+          onClick: () => setView({ type: 'journal' }),
+          className: 'px-3 py-1.5 text-xs hover:bg-soft rounded-sm transition-colors',
+          title: 'Journal de pratique',
+        }, 'Journal'),
+        h('button', {
+          onClick: () => setShowExport(true),
+          className: 'px-3 py-1.5 text-xs hover:bg-soft rounded-sm transition-colors',
+          title: 'Exporter les données pour sauvegarde dans le repo',
+        }, 'Exporter')
+      )
+    ),
+
+    // Bannière activation audio (iOS)
+    needsAudioActivation ? h('div', { className: 'bg-accent/10 border-b border-accent/20 px-4 py-3 flex items-center justify-between gap-4 flex-wrap' },
+      h('p', { className: 'text-xs text-ink flex-1 min-w-[200px]' },
+        'Sur iPhone / iPad, Safari demande une interaction avant de jouer du son. Active l\'audio pour entendre les notes des leçons.'
+      ),
+      h('button', {
+        onClick: activateAudio,
+        className: 'px-3 py-1.5 bg-accent text-paper rounded-sm text-xs hover:bg-accent/90',
+      }, 'Activer l\'audio')
+    ) : null,
+
+    // Contenu
+    h('main', { className: 'px-4 sm:px-6' },
+      view.type === 'overview' ? h(Overview, {
+        progression: state.progression,
+        onSelectLesson: (id) => setView({ type: 'lesson', id }),
+      }) :
+      view.type === 'lesson' ? h(LessonView, {
+        lessonId: view.id,
+        progression: state.progression,
+        setProgression,
+        onBack: () => setView({ type: 'overview' }),
+      }) : null
+    ),
+
+    // Modals
+    view.type === 'journal' ? h(JournalView, {
+      journal: state.journal,
+      setJournal,
+      onClose: () => setView({ type: 'overview' }),
+    }) : null,
+    showExport ? h(ExportPanel, { state, onClose: () => setShowExport(false) }) : null,
+
+    // Footer
+    h('footer', { className: 'mt-20 py-8 border-t border-rule text-center text-xs text-dim no-print' },
+      h('p', null, 'Parcours personnel · ',
+        h('a', { href: 'https://github.com/tombychan/chant', className: 'underline hover:text-ink' }, 'github.com/tombychan/chant')
+      )
+    )
+  );
+}
+
+/* ============================================================
+   MOUNT
+   ============================================================ */
+
+const root = createRoot(document.getElementById('root'));
+root.render(h(AudioProvider, null, h(App)));
+</script>
+</body>
+</html>

@@ -1,0 +1,49 @@
+{
+  "version": "1.0.0",
+  "changelog": [
+    {
+      "date": "2026-04-23",
+      "entry": "Initialisation MVP Bloc 1 Semaine 1"
+    }
+  ],
+  "bloc_courant": "bloc1-s1",
+  "lecon_courante": "bloc1-s1-l1",
+  "lecons": {
+    "bloc1-s1-l1": {
+      "statut": "non_demarree",
+      "date_demarrage": null,
+      "date_completion": null,
+      "duree_reelle_minutes": null
+    },
+    "bloc1-s1-l2": {
+      "statut": "non_demarree",
+      "date_demarrage": null,
+      "date_completion": null,
+      "duree_reelle_minutes": null
+    },
+    "bloc1-s1-l3": {
+      "statut": "non_demarree",
+      "date_demarrage": null,
+      "date_completion": null,
+      "duree_reelle_minutes": null
+    },
+    "bloc1-s1-l4": {
+      "statut": "non_demarree",
+      "date_demarrage": null,
+      "date_completion": null,
+      "duree_reelle_minutes": null
+    },
+    "bloc1-s1-l5": {
+      "statut": "non_demarree",
+      "date_demarrage": null,
+      "date_completion": null,
+      "duree_reelle_minutes": null
+    },
+    "bloc1-s1-l6": {
+      "statut": "non_demarree",
+      "date_demarrage": null,
+      "date_completion": null,
+      "duree_reelle_minutes": null
+    }
+  }
+}

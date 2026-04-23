@@ -1,0 +1,22 @@
+{
+  "version": "1.0.0",
+  "changelog": [
+    {
+      "date": "2026-04-23",
+      "entry": "Initialisation MVP Bloc 1 Semaine 1"
+    }
+  ],
+  "date_evaluation": null,
+  "notes": {
+    "parlee_confortable": null,
+    "grave_limite_confortable": null,
+    "grave_limite_accessible": null,
+    "passaggio_pressenti_bas": null,
+    "aigu_limite_confortable_poitrine": null,
+    "aigu_limite_confortable_global": null,
+    "aigu_limite_accessible": null
+  },
+  "hypothese_fach": null,
+  "fiabilite_estimation": null,
+  "reevaluations": []
+}
