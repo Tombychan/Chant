@@ -711,9 +711,45 @@ const LESSONS = {
     ],
     render: Lesson6,
   },
+
+  // Bloc 2 - Semaine 1
+  'bloc2-s1-l1': {
+    bloc: 'bloc2',
+    semaine: 1,
+    numero: 1,
+    titre: 'Vue d\'ensemble de l\'appareil vocal',
+    sousTitre: 'Soufflerie, vibrateur, résonateurs',
+    dureeMinutes: 15,
+    objectif: 'Cartographier mentalement les trois zones fonctionnelles de l\'appareil vocal avant d\'entrer dans le détail de chacune. Comprendre que la voix humaine peut être pensée comme un instrument à trois étages.',
+    prerequis: ['bloc1-s1-l1'],
+    sources: [
+      { auteur: 'McCoy', ouvrage: 'Your Voice: An Inside View', pages: 'Ch. 7-10 (vue d\'ensemble)', note: 'Source principale pour l\'anatomie et la physiologie vocales.' },
+      { auteur: 'Henny', ouvrage: 'Beginning Singing', pages: 'ch. sur la phonation', note: 'Approche accessible de l\'appareil vocal comme système.' },
+    ],
+    render: Lesson21,
+  },
+  'bloc2-s1-l2': {
+    bloc: 'bloc2',
+    semaine: 1,
+    numero: 2,
+    titre: 'La respiration pour la voix',
+    sousTitre: 'Anatomie fonctionnelle de l\'inspiration et de l\'expiration',
+    dureeMinutes: 18,
+    objectif: 'Identifier les muscles principaux de la respiration. Comprendre le rôle central du diaphragme. Distinguer respiration au repos et respiration pour la voix. Poser les bases pour comprendre le "soutien" (leçon suivante).',
+    prerequis: ['bloc2-s1-l1'],
+    sources: [
+      { auteur: 'McCoy', ouvrage: 'Your Voice: An Inside View', pages: 'Ch. 8, p. 85-105', note: 'Source principale — très détaillée. On sélectionne.' },
+      { auteur: 'Dayme & Besterman', ouvrage: 'Dynamics of the Singing Voice', pages: 'Ch. 6, p. 63-88', note: 'Approche somatique complémentaire, insiste sur la posture.' },
+      { auteur: 'Henny', ouvrage: 'Beginning Singing', pages: 'ch. "Exhaling"', note: 'Analogie du tube de dentifrice pour le contrôle du flux.' },
+    ],
+    render: Lesson22,
+  },
 };
 
-const LESSON_ORDER = ['bloc1-s1-l1','bloc1-s1-l2','bloc1-s1-l3','bloc1-s1-l4','bloc1-s1-l5','bloc1-s1-l6'];
+const LESSON_ORDER = [
+  'bloc1-s1-l1','bloc1-s1-l2','bloc1-s1-l3','bloc1-s1-l4','bloc1-s1-l5','bloc1-s1-l6',
+  'bloc2-s1-l1','bloc2-s1-l2',
+];
 
 /* ============================================================
    LEÇON 1 — Son, fréquence, hauteur
@@ -748,9 +784,9 @@ function Lesson1({ onComplete }) {
         'Une vibration a une ',
         h('strong', null, 'vitesse'),
         ' : le nombre d\'allers-retours par seconde. C\'est ce qu\'on appelle la ',
-        h('strong', null, 'fréquence'),
+        h(Term, null, h('strong', null, 'fréquence')),
         ', mesurée en ',
-        h('strong', null, 'Hertz'),
+        h(Term, null, h('strong', null, 'Hertz')),
         ' (abréviation : Hz). Un Hz = une oscillation par seconde.'
       ),
       h('p', { className: pCls },
@@ -803,7 +839,7 @@ function Lesson1({ onComplete }) {
         'C\'est une distinction subtile mais importante. ',
         h('strong', null, 'La fréquence'),
         ' est une mesure objective : 440 Hz, c\'est 440 vibrations par seconde, mesurables avec un instrument. ',
-        h('strong', null, 'La hauteur'),
+        h(Term, null, h('strong', null, 'La hauteur')),
         ' est la perception subjective que ton cerveau construit à partir de cette fréquence — influencée par le timbre, le volume, le contexte, et même ton état physique.'
       ),
       h('p', { className: pCls, },
@@ -814,7 +850,7 @@ function Lesson1({ onComplete }) {
       h('div', { className: 'my-6 p-4 border-l-2 border-accent bg-soft/30 text-sm text-ink' },
         h('div', { className: 'text-[11px] uppercase tracking-widest text-accent mb-2 font-sans' }, 'À retenir'),
         h('p', { className: 'leading-relaxed' }, 'Une ',
-          h('strong', null, 'note'), ' est un son dont la fréquence a reçu un ',
+          h(Term, null, h('strong', null, 'note')), ' est un son dont la fréquence a reçu un ',
           h('strong', null, 'nom'), ' dans un système musical. La note ',
           h(Note, { name: 'A4' }), ' correspond, par convention internationale, à 440 Hz. Changer la fréquence de référence (certains orchestres utilisent 442, les baroqueux 415) change le son physique produit par la même note écrite.'
         )
@@ -926,7 +962,7 @@ function Lesson2({ onComplete }) {
     h('section', { className: sectionCls },
       h('h2', { className: h2Cls }, '2. L\'octave : une marche d\'escalier'),
       h('p', { className: pCls },
-        'Si tu joues successivement Do, Ré, Mi, Fa, Sol, La, Si… tu arrives au Do suivant. Ce Do-là porte le même nom, mais il est plus aigu. Précisément : sa fréquence est le double du précédent. Écoute :'
+        'Si tu joues successivement Do, Ré, Mi, Fa, Sol, La, Si… tu arrives au Do suivant. Ce Do-là porte le même nom, mais il est plus aigu. Précisément : sa fréquence est le double du précédent. C\'est ce qu\'on appelle une ', h(Term, null, 'octave'), '. Écoute :'
       ),
       h('div', { className: 'my-5 flex items-center gap-3 flex-wrap' },
         h(Note, { name: 'C3' }),
@@ -1072,7 +1108,7 @@ function Lesson3({ onComplete }) {
       h('h2', { className: h2Cls }, '2. Le demi-ton, l\'unité de base'),
       h('p', { className: pCls },
         'Un ',
-        h('strong', null, 'demi-ton'),
+        h(Term, null, h('strong', null, 'demi-ton')),
         ' est la plus petite distance entre deux notes dans le système musical occidental standard. C\'est le passage d\'une touche à la touche adjacente sur le clavier, blanche ou noire, peu importe.'
       ),
       h('p', { className: pCls },
@@ -1093,7 +1129,7 @@ function Lesson3({ onComplete }) {
       h('h2', { className: h2Cls }, '3. Le ton : deux demi-tons'),
       h('p', { className: pCls },
         'Un ',
-        h('strong', null, 'ton'),
+        h(Term, null, h('strong', null, 'ton')),
         ' (ou « ton entier »), c\'est simplement deux demi-tons successifs. De ', h(Note, { name: 'C4' }), ' à ', h(Note, { name: 'D4' }), ' : un ton (on passe par-dessus la touche noire C#4). De ', h(Note, { name: 'E4' }), ' à ', h(Note, { name: 'F#4' }), ' : un ton également.'
       ),
       h('p', { className: pCls },
@@ -1216,7 +1252,7 @@ function Lesson4({ onComplete }) {
       h('h2', { className: h2Cls }, '1. Intervalle : la distance entre deux notes'),
       h('p', { className: pCls },
         'Un ',
-        h('strong', null, 'intervalle'),
+        h(Term, null, h('strong', null, 'intervalle')),
         ' est la distance entre deux notes. On peut la mesurer en demi-tons (précis, scientifique) ou par son nom musical (octave, quinte, tierce, etc.). Les deux coexistent dans la littérature — McCoy utilise surtout les ratios de fréquence, Bozeman et Henny utilisent surtout les noms musicaux.'
       ),
       h('p', { className: pCls },
@@ -1263,7 +1299,7 @@ function Lesson4({ onComplete }) {
       h('h2', { className: h2Cls }, '3. La gamme majeure'),
       h('p', { className: pCls },
         'Quand tu chantes « Do Ré Mi Fa Sol La Si Do » en montant, tu chantes une ',
-        h('strong', null, 'gamme majeure'),
+        h(Term, null, h('strong', null, 'gamme majeure')),
         '. Spécifiquement ici, la gamme de Do majeur. Ce qui fait qu\'elle sonne « joyeuse, stable, familière », c\'est une alternance précise de tons et de demi-tons.'
       ),
       h('p', { className: pCls },
@@ -1852,6 +1888,557 @@ function Lesson6Exercise() {
 }
 
 /* ============================================================
+   COMPOSANT — Schéma anatomique interactif (3 zones)
+   ============================================================ */
+
+function AnatomySchema({ onZoneClick }) {
+  const [activeZone, setActiveZone] = useState(null);
+
+  const zones = {
+    resonateurs: {
+      label: 'Résonateurs',
+      description: 'Pharynx (arrière-gorge), cavité buccale, cavités nasales. Colorent et amplifient le son produit par les cordes vocales.',
+      color: '#8b3a1f',
+    },
+    vibrateur: {
+      label: 'Vibrateur',
+      description: 'Le larynx, qui contient les cordes vocales. Source primaire du son.',
+      color: '#c56b44',
+    },
+    soufflerie: {
+      label: 'Soufflerie',
+      description: 'Poumons et muscles respiratoires (diaphragme, intercostaux, abdominaux). Fournit et régule le flux d\'air.',
+      color: '#d4a373',
+    },
+  };
+
+  const handleZoneClick = (key) => {
+    setActiveZone(activeZone === key ? null : key);
+    if (onZoneClick) onZoneClick(key);
+  };
+
+  const isActive = (key) => activeZone === key;
+  const baseOpacity = (key) => (activeZone === null || activeZone === key ? 1 : 0.3);
+
+  return h('div', { className: 'my-6' },
+    h('div', { className: 'flex flex-col lg:flex-row gap-6 items-start' },
+      // Colonne SVG
+      h('div', { className: 'flex-shrink-0 mx-auto lg:mx-0' },
+        h('svg', {
+          viewBox: '0 0 200 360',
+          width: '200',
+          height: '360',
+          style: { maxWidth: '100%', height: 'auto' },
+          'aria-label': 'Schéma simplifié de l\'appareil vocal',
+        },
+          // Résonateurs : tête stylisée (ovale + cavités)
+          h('g', {
+            onClick: () => handleZoneClick('resonateurs'),
+            style: { cursor: 'pointer', opacity: baseOpacity('resonateurs') },
+          },
+            // Crâne/tête
+            h('ellipse', {
+              cx: 100, cy: 55, rx: 45, ry: 50,
+              fill: isActive('resonateurs') ? zones.resonateurs.color : '#f0e5d4',
+              stroke: '#1a1814', strokeWidth: 1.5,
+            }),
+            // Cavité nasale (petite ellipse)
+            h('ellipse', { cx: 100, cy: 50, rx: 12, ry: 8, fill: 'none', stroke: '#1a1814', strokeWidth: 1, strokeDasharray: '2,2' }),
+            // Cavité buccale (ligne bouche)
+            h('path', { d: 'M 85 80 Q 100 85 115 80', fill: 'none', stroke: '#1a1814', strokeWidth: 1.2 }),
+            // Pharynx (ellipse verticale)
+            h('ellipse', { cx: 100, cy: 95, rx: 8, ry: 14, fill: 'none', stroke: '#1a1814', strokeWidth: 1, strokeDasharray: '2,2' }),
+            h('text', {
+              x: 155, y: 55, fill: '#1a1814', fontSize: '11', fontFamily: 'serif',
+              style: { pointerEvents: 'none', userSelect: 'none' },
+            }, 'Résonateurs'),
+          ),
+
+          // Cou + larynx (vibrateur)
+          h('g', {
+            onClick: () => handleZoneClick('vibrateur'),
+            style: { cursor: 'pointer', opacity: baseOpacity('vibrateur') },
+          },
+            // Cou
+            h('rect', {
+              x: 85, y: 105, width: 30, height: 40,
+              fill: isActive('vibrateur') ? zones.vibrateur.color : '#f0e5d4',
+              stroke: '#1a1814', strokeWidth: 1.5,
+            }),
+            // Pomme d'Adam (saillie sur le cou)
+            h('path', {
+              d: 'M 85 118 L 80 125 L 85 132',
+              fill: 'none', stroke: '#1a1814', strokeWidth: 1.5,
+            }),
+            // Petite marque cordes vocales horizontales
+            h('line', { x1: 90, y1: 128, x2: 110, y2: 128, stroke: '#1a1814', strokeWidth: 0.8 }),
+            h('text', {
+              x: 155, y: 128, fill: '#1a1814', fontSize: '11', fontFamily: 'serif',
+              style: { pointerEvents: 'none', userSelect: 'none' },
+            }, 'Vibrateur'),
+          ),
+
+          // Thorax + abdomen (soufflerie)
+          h('g', {
+            onClick: () => handleZoneClick('soufflerie'),
+            style: { cursor: 'pointer', opacity: baseOpacity('soufflerie') },
+          },
+            // Thorax (forme en cloche pour suggérer cage thoracique)
+            h('path', {
+              d: 'M 60 145 Q 55 170 60 220 L 140 220 Q 145 170 140 145 Z',
+              fill: isActive('soufflerie') ? zones.soufflerie.color : '#f0e5d4',
+              stroke: '#1a1814', strokeWidth: 1.5,
+            }),
+            // Côtes stylisées
+            [160, 175, 190, 205].map((y, i) => h('line', {
+              key: i,
+              x1: 62 + i * 0.5, y1: y, x2: 138 - i * 0.5, y2: y,
+              stroke: '#1a1814', strokeWidth: 0.6, opacity: 0.6,
+            })),
+            // Diaphragme (courbe)
+            h('path', {
+              d: 'M 60 220 Q 100 230 140 220',
+              fill: 'none', stroke: '#1a1814', strokeWidth: 1.8,
+            }),
+            // Abdomen
+            h('path', {
+              d: 'M 60 220 Q 55 260 65 300 L 135 300 Q 145 260 140 220 Z',
+              fill: isActive('soufflerie') ? zones.soufflerie.color : '#f0e5d4',
+              stroke: '#1a1814', strokeWidth: 1.5,
+              opacity: 0.85,
+            }),
+            h('text', {
+              x: 155, y: 180, fill: '#1a1814', fontSize: '11', fontFamily: 'serif',
+              style: { pointerEvents: 'none', userSelect: 'none' },
+            }, 'Soufflerie'),
+          ),
+
+          // Flèche flux d'air (du bas vers le haut)
+          h('g', { style: { opacity: 0.4, pointerEvents: 'none' } },
+            h('path', {
+              d: 'M 30 280 L 30 130',
+              fill: 'none', stroke: '#8b3a1f', strokeWidth: 1.5, strokeDasharray: '4,3',
+            }),
+            h('polygon', { points: '27,135 33,135 30,125', fill: '#8b3a1f' }),
+            h('text', { x: 12, y: 220, fill: '#8b3a1f', fontSize: '9', fontFamily: 'serif' }, 'air'),
+          ),
+        ),
+      ),
+
+      // Colonne de description contextuelle
+      h('div', { className: 'flex-1 min-w-0 text-sm' },
+        h('p', { className: 'text-dim text-xs mb-3 italic' },
+          'Clique sur une zone du schéma pour voir sa description.'
+        ),
+        activeZone ? h('div', { className: 'p-4 bg-soft/50 border border-rule rounded-sm' },
+          h('div', { className: 'text-[11px] uppercase tracking-widest text-accent mb-2 font-sans' }, zones[activeZone].label),
+          h('p', { className: 'leading-relaxed text-ink' }, zones[activeZone].description),
+        ) : h('div', { className: 'p-4 border border-dashed border-rule rounded-sm text-dim leading-relaxed' },
+          h('p', null, 'Les trois zones fonctionnent ensemble : la ',
+            h('strong', { className: 'text-ink' }, 'soufflerie'),
+            ' fournit l\'air, le ',
+            h('strong', { className: 'text-ink' }, 'vibrateur'),
+            ' le transforme en son brut, les ',
+            h('strong', { className: 'text-ink' }, 'résonateurs'),
+            ' lui donnent son timbre et les voyelles.'
+          )
+        )
+      )
+    ),
+    h('p', { className: 'text-[11px] text-dim italic mt-3' },
+      'Schéma très simplifié. Pour les illustrations anatomiques détaillées, voir McCoy ', h('em', null, 'Your Voice'), ' (chapitres 7-10).'
+    )
+  );
+}
+
+/* ============================================================
+   LEÇON 2-1 — Vue d'ensemble de l'appareil vocal
+   ============================================================ */
+
+function Lesson21({ onComplete }) {
+  const [quiz1, setQuiz1] = useState(null);
+  const [quiz2, setQuiz2] = useState(null);
+
+  const sectionCls = "mt-8 first:mt-0";
+  const h2Cls = "font-serif-display text-2xl text-ink mt-10 mb-4 tracking-tight";
+  const pCls = "text-[16px] leading-[1.7] text-ink mb-4 hyphen";
+
+  return h('div', { className: 'max-w-prose mx-auto' },
+    h('section', { className: sectionCls },
+      h('p', { className: pCls + ' text-dim italic font-serif-body' },
+        'Bienvenue dans le Bloc 2. Jusqu\'ici, tu as appris les outils musicaux (notes, octaves, intervalles) et tu as cartographié ta tessiture. Maintenant, on ouvre le capot : qu\'est-ce qui, dans ton corps, produit réellement un son vocal ? Cette leçon donne la vue d\'ensemble. Les cinq suivantes entreront dans le détail de chaque partie.'
+      ),
+    ),
+
+    h('section', { className: sectionCls },
+      h('h2', { className: h2Cls }, '1. La voix comme instrument'),
+      h('p', { className: pCls },
+        'L\'', h(Term, null, 'appareil vocal'), ' humain est un instrument étrange. Contrairement à un violon (on voit les cordes), un piano (on voit les marteaux), ou une trompette (on voit le pavillon), ',
+        h('strong', null, 'l\'essentiel de ce qui produit ta voix est invisible'),
+        ' — enfoui dans ta gorge, ton thorax et ton abdomen. Tu ne peux même pas sentir directement les muscles impliqués, parce que la plupart sont involontaires ou semi-involontaires.'
+      ),
+      h('p', { className: pCls },
+        'Pour rendre cet instrument pensable, la pédagogie vocale moderne le divise en trois zones fonctionnelles. Cette division ne correspond pas à des frontières anatomiques strictes, mais à des ',
+        h('strong', null, 'fonctions distinctes'),
+        ' qui travaillent ensemble.'
+      ),
+    ),
+
+    h('section', { className: sectionCls },
+      h('h2', { className: h2Cls }, '2. Les trois zones'),
+      h('p', { className: pCls },
+        'Explore le schéma ci-dessous en cliquant sur chaque zone.'
+      ),
+      h(AnatomySchema, {}),
+    ),
+
+    h('section', { className: sectionCls },
+      h('h2', { className: h2Cls }, '3. L\'analogie instrumentale'),
+      h('p', { className: pCls },
+        'Pour fixer les idées, voici la correspondance avec un instrument à vent classique :'
+      ),
+      h('div', { className: 'my-5 overflow-x-auto' },
+        h('table', { className: 'w-full text-sm border-collapse' },
+          h('thead', null,
+            h('tr', { className: 'border-b-2 border-ink text-left' },
+              h('th', { className: 'py-2 pr-4 font-serif-body font-medium' }, 'Voix humaine'),
+              h('th', { className: 'py-2 pr-4 font-serif-body font-medium' }, 'Fonction'),
+              h('th', { className: 'py-2 font-serif-body font-medium' }, 'Équivalent (hautbois)'),
+            )
+          ),
+          h('tbody', null,
+            [
+              { voix: h(Term, { k: 'Soufflerie' }, 'Soufflerie'), fonction: 'Fournit l\'air sous pression', hautbois: 'Poumons du hautboïste + colonne d\'air' },
+              { voix: h(Term, { k: 'Vibrateur' }, 'Vibrateur'), fonction: 'Transforme le flux d\'air en son brut', hautbois: 'Anche double qui vibre' },
+              { voix: h(Term, { k: 'Résonateurs' }, 'Résonateurs'), fonction: 'Amplifient et filtrent le son', hautbois: 'Corps de l\'instrument (tube + pavillon)' },
+            ].map((r, i) => h('tr', { key: i, className: 'border-b border-rule/50' },
+              h('td', { className: 'py-2 pr-4 font-medium' }, r.voix),
+              h('td', { className: 'py-2 pr-4 text-ink' }, r.fonction),
+              h('td', { className: 'py-2 text-dim italic' }, r.hautbois),
+            ))
+          )
+        )
+      ),
+      h('p', { className: pCls },
+        'L\'analogie a ses limites — ton corps n\'est pas un hautbois, notamment parce que les trois zones ',
+        h('strong', null, 'se modifient activement'),
+        ' pendant le chant (tu ne changes pas la forme de ton hautbois en soufflant, mais tu changes la forme de tes résonateurs en chantant). Mais elle aide à comprendre que la voix est un système à trois étages, pas un organe unique.'
+      ),
+    ),
+
+    h('section', { className: sectionCls },
+      h('h2', { className: h2Cls }, '4. Quelques remarques d\'importance'),
+      h('div', { className: 'space-y-4' },
+        h('div', { className: 'p-4 border-l-2 border-accent bg-soft/30 text-sm' },
+          h('div', { className: 'text-[11px] uppercase tracking-widest text-accent mb-2 font-sans' }, 'Les cordes vocales ne chantent pas'),
+          h('p', { className: 'leading-relaxed' },
+            'Le son brut que produisent les cordes vocales ressemble à un vrombissement désagréable — quelque chose entre le grognement et le bourdon. Henny compare ça à ',
+            h('em', { className: 'font-serif-body italic' }, '« le coin-coin d\'un canard pas en forme »'),
+            '. Ce sont les résonateurs qui transforment ce son brut en voix reconnaissable. Tu retrouveras cette idée dans toutes les leçons à venir.'
+          )
+        ),
+        h('div', { className: 'p-4 border-l-2 border-dim bg-soft/20 text-sm' },
+          h('div', { className: 'text-[11px] uppercase tracking-widest text-dim mb-2 font-sans' }, 'Tu ne contrôles pas directement tout ça'),
+          h('p', { className: 'leading-relaxed' },
+            'Contrairement à tes doigts, tu n\'as pas de ',
+            h('strong', null, 'contrôle conscient direct'),
+            ' sur la plupart des muscles vocaux — notamment ceux du larynx. Tu les influences indirectement, par l\'intention, la posture, la respiration, et l\'écoute. Henny insiste sur ce point : apprendre à chanter, c\'est en partie apprendre à ',
+            h('em', { className: 'font-serif-body italic' }, 'guider'),
+            ' des muscles qu\'on ne sent pas. C\'est pour ça que la pratique régulière est indispensable.'
+          )
+        ),
+      )
+    ),
+
+    h('section', { className: sectionCls },
+      h('h2', { className: h2Cls }, '5. Ce qu\'on va faire dans les leçons suivantes'),
+      h('ul', { className: 'space-y-2 text-[15px] leading-relaxed ml-4' },
+        h('li', { className: 'relative pl-3 before:content-["—"] before:absolute before:left-0 before:text-accent' },
+          h('strong', null, 'Leçon 2-2 (prochaine)'), ' : la respiration en détail — diaphragme, intercostaux, abdominaux.'),
+        h('li', { className: 'relative pl-3 before:content-["—"] before:absolute before:left-0 before:text-accent' },
+          h('strong', null, 'Leçon 2-3'), ' : le fameux « soutien » démystifié physiquement.'),
+        h('li', { className: 'relative pl-3 before:content-["—"] before:absolute before:left-0 before:text-accent' },
+          h('strong', null, 'Leçon 2-4'), ' : le larynx et les cordes vocales.'),
+        h('li', { className: 'relative pl-3 before:content-["—"] before:absolute before:left-0 before:text-accent' },
+          h('strong', null, 'Leçon 2-5'), ' : les muscles TA et CT qui font varier la hauteur — et qui expliquent enfin ce qui se passe à ton passaggio.'),
+        h('li', { className: 'relative pl-3 before:content-["—"] before:absolute before:left-0 before:text-accent' },
+          h('strong', null, 'Leçon 2-6'), ' : les résonateurs et comment ils colorent ta voix.'),
+      )
+    ),
+
+    h('section', { className: sectionCls },
+      h('h2', { className: h2Cls }, '6. Vérification rapide'),
+      h('div', { className: 'space-y-6' },
+        h(QuizBlock, {
+          question: 'La zone appelée "vibrateur" dans l\'appareil vocal correspond à :',
+          options: [
+            { id: 'a', label: 'Le diaphragme' },
+            { id: 'b', label: 'Le larynx et ses cordes vocales' },
+            { id: 'c', label: 'Les cavités de la bouche et du nez' },
+          ],
+          correctId: 'b',
+          explanation: 'Le vibrateur, c\'est le larynx (qui contient les cordes vocales). C\'est lui qui transforme le flux d\'air en son brut. Le diaphragme appartient à la soufflerie, les cavités buccales et nasales aux résonateurs.',
+          state: quiz1, setState: setQuiz1,
+        }),
+        h(QuizBlock, {
+          question: 'Vrai ou faux : le son que produisent les cordes vocales seules est déjà la voix telle qu\'on l\'entend.',
+          options: [
+            { id: 'a', label: 'Vrai' },
+            { id: 'b', label: 'Faux — les résonateurs filtrent et amplifient le son brut' },
+            { id: 'c', label: 'Vrai, sauf pour les voyelles' },
+          ],
+          correctId: 'b',
+          explanation: 'Faux. Le son brut produit par les cordes vocales est un vrombissement peu mélodieux. Ce sont les cavités résonantes au-dessus (pharynx, bouche, nez) qui en font une voix articulée, reconnaissable, capable de former des voyelles. Ce mécanisme sera détaillé dans la leçon 2-6 et développé acoustiquement au Bloc 3.',
+          state: quiz2, setState: setQuiz2,
+        }),
+      )
+    ),
+
+    h('section', { className: sectionCls },
+      h('h2', { className: h2Cls }, '7. En résumé'),
+      h('ul', { className: 'space-y-2 text-[15px] leading-relaxed ml-4' },
+        h('li', { className: 'relative pl-3 before:content-["—"] before:absolute before:left-0 before:text-accent' },
+          'L\'appareil vocal se divise fonctionnellement en trois zones : soufflerie, vibrateur, résonateurs.'),
+        h('li', { className: 'relative pl-3 before:content-["—"] before:absolute before:left-0 before:text-accent' },
+          'Soufflerie = poumons + muscles respiratoires. Fournit l\'air sous pression.'),
+        h('li', { className: 'relative pl-3 before:content-["—"] before:absolute before:left-0 before:text-accent' },
+          'Vibrateur = larynx + cordes vocales. Produit le son brut.'),
+        h('li', { className: 'relative pl-3 before:content-["—"] before:absolute before:left-0 before:text-accent' },
+          'Résonateurs = pharynx + cavité buccale + cavités nasales. Filtrent et amplifient.'),
+        h('li', { className: 'relative pl-3 before:content-["—"] before:absolute before:left-0 before:text-accent' },
+          'La plupart des muscles impliqués sont hors contrôle direct — on les influence indirectement.'),
+      )
+    ),
+
+    h(CompletionFooter, { onComplete, lessonId: 'bloc2-s1-l1' })
+  );
+}
+
+/* ============================================================
+   LEÇON 2-2 — La respiration pour la voix
+   ============================================================ */
+
+function Lesson22({ onComplete }) {
+  const [quiz1, setQuiz1] = useState(null);
+  const [quiz2, setQuiz2] = useState(null);
+  const [quiz3, setQuiz3] = useState(null);
+
+  const sectionCls = "mt-8 first:mt-0";
+  const h2Cls = "font-serif-display text-2xl text-ink mt-10 mb-4 tracking-tight";
+  const pCls = "text-[16px] leading-[1.7] text-ink mb-4 hyphen";
+
+  return h('div', { className: 'max-w-prose mx-auto' },
+    h('section', { className: sectionCls },
+      h('p', { className: pCls + ' text-dim italic font-serif-body' },
+        'On entre dans la première des trois zones : la soufflerie. Cette leçon a un objectif simple : te donner une carte fonctionnelle des muscles respiratoires. Pas pour les contrôler consciemment un par un — personne ne fait ça en chantant — mais pour que, quand ton enseignante te dira « descends le diaphragme » ou « sens tes côtes s\'écarter », tu saches précisément ce qu\'elle désigne.'
+      ),
+    ),
+
+    h('section', { className: sectionCls },
+      h('h2', { className: h2Cls }, '1. Les poumons ne respirent pas'),
+      h('p', { className: pCls },
+        'Énoncé volontairement provocateur, mais exact : les ', h(Term, { k: 'Poumons' }, 'poumons'),
+        ' n\'ont aucun muscle propre. Ce sont des sacs spongieux passifs. Ce qui les remplit et les vide, c\'est le changement de volume de la ', h(Term, { k: 'Cage thoracique' }, 'cage thoracique'),
+        ' autour d\'eux.'
+      ),
+      h('p', { className: pCls },
+        'Quand le thorax ',
+        h('strong', null, 'augmente'),
+        ' de volume (côtes qui s\'écartent vers l\'extérieur, diaphragme qui descend), une dépression est créée à l\'intérieur. L\'air extérieur, plus haute pression, s\'engouffre par la bouche/le nez pour compenser. C\'est l\'inspiration.'
+      ),
+      h('p', { className: pCls },
+        'Quand le thorax ',
+        h('strong', null, 'diminue'),
+        ' de volume (côtes qui reviennent, diaphragme qui remonte), l\'air à l\'intérieur est comprimé et sort. C\'est l\'expiration.'
+      ),
+      h('div', { className: 'my-6 p-4 border-l-2 border-dim bg-soft/20 text-sm' },
+        h('p', { className: 'leading-relaxed' },
+          'Autrement dit : ',
+          h('strong', null, 'la respiration est une gestion mécanique du volume thoracique'),
+          '. Les muscles respiratoires agissent sur la cage thoracique, pas sur les poumons.'
+        )
+      )
+    ),
+
+    h('section', { className: sectionCls },
+      h('h2', { className: h2Cls }, '2. Le diaphragme : muscle-roi de l\'inspiration'),
+      h('p', { className: pCls },
+        'Le ', h(Term, null, 'diaphragme'),
+        ' est le muscle principal de l\'inspiration. C\'est une ',
+        h('strong', null, 'coupole musculaire'),
+        ' qui sépare le thorax (au-dessus : poumons, cœur) de l\'abdomen (en-dessous : estomac, foie, intestins).'
+      ),
+      h('p', { className: pCls },
+        'Au repos, la coupole est bombée vers le haut, légèrement sous le cœur. Quand tu inspires, elle se ',
+        h('strong', null, 'contracte'),
+        ' — et un muscle qui se contracte se raccourcit. Résultat : la coupole s\'aplatit vers le bas. Le thorax gagne du volume vertical, les poumons se remplissent par le haut.'
+      ),
+      h('p', { className: pCls },
+        'Simultanément, la descente du diaphragme pousse les viscères abdominaux vers le bas et l\'avant. C\'est pour ça que ',
+        h('strong', null, 'ton ventre s\'avance quand tu inspires profondément'),
+        ' — ce n\'est pas « de l\'air qui va dans le ventre » (mythe fréquent), c\'est le déplacement des viscères par le diaphragme qui descend.'
+      ),
+      h('div', { className: 'my-6 p-4 border-l-2 border-accent bg-soft/30 text-sm' },
+        h('div', { className: 'text-[11px] uppercase tracking-widest text-accent mb-2 font-sans' }, 'Auto-observation'),
+        h('p', { className: 'leading-relaxed' },
+          'Pose une main sur ton ventre, juste au-dessus du nombril, et une main sur ta poitrine. Inspire profondément, tranquillement. ',
+          h('strong', null, 'Laquelle de tes mains bouge le plus ?'),
+          ' Si tu es détendu, ce devrait être celle du ventre. C\'est le signe que ton diaphragme travaille correctement. Si seule ta poitrine monte, c\'est que tu utilises surtout des muscles accessoires (épaules, cou) — respiration dite "haute" ou "claviculaire", peu efficace pour le chant.'
+        )
+      ),
+      h('p', { className: pCls + ' text-[14px] text-dim italic' },
+        'Note : McCoy (Ch. 8, p. 88-90) détaille l\'anatomie exacte du diaphragme — origines tendineuses, innervation par le nerf phrénique, etc. Pour ton parcours, la vue fonctionnelle ci-dessus suffit. Si tu veux creuser, le chapitre est accessible.'
+      ),
+    ),
+
+    h('section', { className: sectionCls },
+      h('h2', { className: h2Cls }, '3. Les intercostaux : les muscles des côtes'),
+      h('p', { className: pCls },
+        'Entre chaque paire de côtes se trouvent deux couches de ', h(Term, { k: 'Intercostaux (muscles)' }, 'muscles intercostaux'),
+        ', qui tirent dans des directions opposées :'
+      ),
+      h('ul', { className: 'space-y-2 text-[15px] leading-relaxed ml-4 mb-4' },
+        h('li', { className: 'relative pl-3 before:content-["•"] before:absolute before:left-0 before:text-accent' },
+          h('strong', null, 'Intercostaux externes'), ' : principalement ',
+          h('strong', null, 'inspiratoires'), '. Quand ils se contractent, ils soulèvent les côtes vers le haut et l\'extérieur — la cage thoracique s\'élargit (comme une anse de seau qu\'on soulève).'),
+        h('li', { className: 'relative pl-3 before:content-["•"] before:absolute before:left-0 before:text-accent' },
+          h('strong', null, 'Intercostaux internes'), ' : principalement ',
+          h('strong', null, 'expiratoires'), '. Quand ils se contractent, ils abaissent les côtes et rétrécissent la cage thoracique.'),
+      ),
+      h('p', { className: pCls },
+        'Les deux couches tirent dans des directions opposées — c\'est un premier exemple d\'',
+        h(Term, { k: 'Antagonisme musculaire' }, 'antagonisme musculaire'),
+        '. On rencontrera ce principe encore et encore dans la voix : deux muscles qui se contredisent permettent un contrôle fin, plus précis qu\'un seul muscle qui agit seul.'
+      ),
+      h('div', { className: 'my-6 p-4 border-l-2 border-accent bg-soft/30 text-sm' },
+        h('div', { className: 'text-[11px] uppercase tracking-widest text-accent mb-2 font-sans' }, 'Auto-observation'),
+        h('p', { className: 'leading-relaxed' },
+          'Pose tes mains sur tes côtes latérales, à hauteur des aisselles. Inspire profondément. Tu devrais sentir ',
+          h('strong', null, 'tes côtes s\'écarter latéralement'),
+          '. C\'est l\'action des intercostaux externes. Ton enseignante te parlera probablement de cette sensation — elle a mille images pour la décrire (« ouvre les ailes », « respire dans le dos », « largis ta ceinture »).'
+        )
+      ),
+    ),
+
+    h('section', { className: sectionCls },
+      h('h2', { className: h2Cls }, '4. Les muscles abdominaux : l\'expiration active'),
+      h('p', { className: pCls },
+        'Au repos, l\'expiration est ',
+        h('strong', null, 'passive'),
+        ' : il suffit que les muscles inspiratoires se relâchent, et la cage thoracique revient à sa position par élasticité des tissus. Tu n\'as rien à faire activement pour expirer.'
+      ),
+      h('p', { className: pCls },
+        'Mais pour le chant, l\'expiration doit être ',
+        h('strong', null, 'contrôlée et prolongée'),
+        '. Il faut expulser l\'air de façon régulière, sans à-coups, pour que les cordes vocales vibrent proprement. Les muscles abdominaux entrent en jeu.'
+      ),
+      h('p', { className: pCls },
+        'Les ', h(Term, { k: 'Muscles abdominaux' }, 'muscles abdominaux'),
+        ' sont un ensemble complexe : le ',
+        h('strong', null, 'rectus abdominis'),
+        ' (les « tablettes » verticales), les ',
+        h('strong', null, 'obliques externes et internes'),
+        ' (sur les côtés, en diagonale), et le ',
+        h('strong', null, 'transverse'),
+        ' (le plus profond, qui entoure la taille comme une ceinture). En se contractant, ils pressent les viscères contre le diaphragme détendu, le poussant vers le haut, ce qui expulse l\'air des poumons.'
+      ),
+      h('p', { className: pCls + ' text-[14px] text-dim italic' },
+        'McCoy (Ch. 8, p. 92-95) liste aussi des muscles respiratoires secondaires (scalènes, sterno-cléido-mastoïdiens, etc.) qui interviennent en respiration forcée ou avec mauvaise posture. Pour ton parcours, retenir les abdominaux comme groupe suffit largement.'
+      ),
+    ),
+
+    h('section', { className: sectionCls },
+      h('h2', { className: h2Cls }, '5. Respiration au repos vs respiration pour la voix'),
+      h('p', { className: pCls },
+        'Tes muscles respiratoires ne travaillent pas pareil selon que tu respires au repos, que tu fais du sport, ou que tu chantes.'
+      ),
+      h('div', { className: 'my-5 overflow-x-auto' },
+        h('table', { className: 'w-full text-sm border-collapse' },
+          h('thead', null,
+            h('tr', { className: 'border-b-2 border-ink text-left' },
+              h('th', { className: 'py-2 pr-4 font-serif-body font-medium' }, 'Contexte'),
+              h('th', { className: 'py-2 pr-4 font-serif-body font-medium' }, 'Inspiration'),
+              h('th', { className: 'py-2 font-serif-body font-medium' }, 'Expiration'),
+            )
+          ),
+          h('tbody', null,
+            [
+              { ctx: 'Repos', insp: 'Diaphragme seul (petite amplitude)', exp: 'Passive (relâchement)' },
+              { ctx: 'Effort physique', insp: 'Diaphragme + intercostaux ext. + muscles accessoires', exp: 'Active, rapide' },
+              { ctx: 'Chant', insp: 'Diaphragme + intercostaux ext. (grande amplitude, profonde, silencieuse)', exp: 'Active contrôlée (abdos + intercostaux int.), lente et régulière' },
+            ].map((r, i) => h('tr', { key: i, className: 'border-b border-rule/50' },
+              h('td', { className: 'py-2 pr-4 font-medium' }, r.ctx),
+              h('td', { className: 'py-2 pr-4 text-ink' }, r.insp),
+              h('td', { className: 'py-2 text-ink' }, r.exp),
+            ))
+          )
+        )
+      ),
+      h('p', { className: pCls },
+        'La spécificité du chant : l\'expiration est longue, contrôlée, et doit fournir une pression stable. C\'est là qu\'intervient la notion de « soutien » (prochaine leçon).'
+      ),
+    ),
+
+    h('section', { className: sectionCls },
+      h('h2', { className: h2Cls }, '6. Vérification rapide'),
+      h('div', { className: 'space-y-6' },
+        h(QuizBlock, {
+          question: 'Quand tu inspires profondément, ton ventre s\'avance parce que :',
+          options: [
+            { id: 'a', label: 'L\'air descend dans ton ventre' },
+            { id: 'b', label: 'Le diaphragme descend et pousse les viscères vers le bas et l\'avant' },
+            { id: 'c', label: 'Les muscles abdominaux se contractent' },
+          ],
+          correctId: 'b',
+          explanation: 'L\'air ne va pas dans le ventre (c\'est un mythe pédagogique fréquent). Ce qui bouge, ce sont les viscères, poussés par le diaphragme qui descend. Les muscles abdominaux, eux, interviennent à l\'expiration, pas à l\'inspiration — ils se relâchent quand tu inspires.',
+          state: quiz1, setState: setQuiz1,
+        }),
+        h(QuizBlock, {
+          question: 'L\'antagonisme musculaire, en respiration, désigne :',
+          options: [
+            { id: 'a', label: 'Des muscles qui travaillent en s\'opposant pour permettre un contrôle fin' },
+            { id: 'b', label: 'Des muscles qui refusent de travailler ensemble' },
+            { id: 'c', label: 'La rivalité entre le diaphragme et les poumons' },
+          ],
+          correctId: 'a',
+          explanation: 'L\'antagonisme = deux muscles ou groupes qui tirent dans des directions opposées. Exemple ici : intercostaux externes (inspi) vs internes (expi). Ce principe permet un contrôle beaucoup plus fin qu\'un muscle seul. On le retrouvera au larynx (TA vs CT, leçon 2-5) et dans la notion de soutien (leçon 2-3).',
+          state: quiz2, setState: setQuiz2,
+        }),
+        h(QuizBlock, {
+          question: 'Pendant le chant, l\'expiration est :',
+          options: [
+            { id: 'a', label: 'Passive, par simple relâchement des muscles inspiratoires' },
+            { id: 'b', label: 'Active, contrôlée principalement par les muscles abdominaux et intercostaux internes' },
+            { id: 'c', label: 'Due uniquement à la contraction du diaphragme' },
+          ],
+          correctId: 'b',
+          explanation: 'En chant, l\'expiration doit être lente, régulière, avec une pression stable. Ça nécessite un travail musculaire actif des abdominaux (qui poussent les viscères contre le diaphragme) et des intercostaux internes (qui abaissent les côtes). Le diaphragme, lui, se relâche à l\'expiration — il n\'a pas de rôle actif dans l\'expiration en soi, même s\'il peut moduler sa détente (prochaine leçon : le soutien).',
+          state: quiz3, setState: setQuiz3,
+        }),
+      )
+    ),
+
+    h('section', { className: sectionCls },
+      h('h2', { className: h2Cls }, '7. En résumé'),
+      h('ul', { className: 'space-y-2 text-[15px] leading-relaxed ml-4' },
+        h('li', { className: 'relative pl-3 before:content-["—"] before:absolute before:left-0 before:text-accent' },
+          'Les poumons n\'ont aucun muscle : ils suivent passivement le volume de la cage thoracique.'),
+        h('li', { className: 'relative pl-3 before:content-["—"] before:absolute before:left-0 before:text-accent' },
+          'Muscle principal de l\'inspiration : le diaphragme. En se contractant, il s\'aplatit, élargit le thorax vers le bas, et pousse les viscères — ce qui fait avancer le ventre.'),
+        h('li', { className: 'relative pl-3 before:content-["—"] before:absolute before:left-0 before:text-accent' },
+          'Les intercostaux externes soulèvent les côtes (inspi) ; les internes les abaissent (expi). Premier exemple d\'antagonisme musculaire.'),
+        h('li', { className: 'relative pl-3 before:content-["—"] before:absolute before:left-0 before:text-accent' },
+          'Pour le chant, l\'expiration doit être active et contrôlée : muscles abdominaux + intercostaux internes.'),
+        h('li', { className: 'relative pl-3 before:content-["—"] before:absolute before:left-0 before:text-accent' },
+          'La prochaine leçon expliquera comment ces muscles coopèrent pour produire un "soutien" vocal stable.'),
+      )
+    ),
+
+    h(CompletionFooter, { onComplete, lessonId: 'bloc2-s1-l2' })
+  );
+}
+
+/* ============================================================
    LEÇONS À VENIR (placeholder pour les blocs suivants)
    ============================================================ */
 
@@ -2167,6 +2754,19 @@ const GLOSSARY = [
   { terme: 'Tessiture', categorie: 'pedagogie', definition: 'Étendue totale des notes qu\'une voix peut produire de façon stable et confortable, de la note la plus basse à la note la plus haute. À distinguer de l\'étendue absolue (notes extrêmes atteignables avec effort), qui est plus large.', introLecon: 'bloc1-s1-l5' },
   { terme: 'Timbre', categorie: 'pedagogie', definition: 'Qualité d\'un son qui le distingue d\'un autre à hauteur et volume égaux. Un "la" de piano, de violon et de voix humaine ne se confondent pas même à la même fréquence. Le timbre change dans une même voix selon les voyelles et les registres.', introLecon: 'bloc1-s1-l5' },
   { terme: 'Type de voix (Fach)', categorie: 'pedagogie', definition: 'Classification des voix selon leur tessiture et leur couleur. Voix masculines : basse profonde, basse, basse-baryton, baryton, baryton aigu, ténor. "Fach" est le terme allemand, repris dans la littérature internationale. Les catégories se chevauchent.', introLecon: 'bloc1-s1-l6', sources: [{ auteur: 'Bozeman', reference: 'PVA, Appendix 3' }] },
+
+  // Anatomie — Bloc 2
+  { terme: 'Appareil vocal', categorie: 'anatomie', definition: 'Ensemble des structures corporelles impliquées dans la production vocale. On le divise fonctionnellement en trois zones : soufflerie (poumons + muscles respiratoires), vibrateur (larynx + cordes vocales), résonateurs (pharynx, bouche, cavités nasales).', introLecon: 'bloc2-s1-l1', sources: [{ auteur: 'McCoy', reference: 'Ch. 7-10' }] },
+  { terme: 'Soufflerie', categorie: 'anatomie', definition: 'Zone inférieure de l\'appareil vocal : poumons + muscles respiratoires (diaphragme, intercostaux, abdominaux). Fournit et régule le flux d\'air qui met les cordes vocales en vibration. Analogie : c\'est le "soufflet" d\'un orgue.', introLecon: 'bloc2-s1-l1' },
+  { terme: 'Vibrateur', categorie: 'anatomie', definition: 'Zone moyenne de l\'appareil vocal : le larynx, qui contient les cordes vocales. Source primaire du son — l\'équivalent des anches dans un hautbois ou des cordes d\'un violon.', introLecon: 'bloc2-s1-l1' },
+  { terme: 'Résonateurs', categorie: 'anatomie', definition: 'Zone supérieure de l\'appareil vocal : pharynx (arrière-gorge), cavité buccale, cavités nasales. Ces espaces amplifient sélectivement certaines fréquences du son brut produit par les cordes vocales, donnant au son son timbre et permettant de former les voyelles.', introLecon: 'bloc2-s1-l1', noteApprofondissement: 'Traitement acoustique complet au Bloc 3 (formants, source-filtre).' },
+  { terme: 'Diaphragme', categorie: 'anatomie', definition: 'Muscle en forme de coupole qui sépare le thorax (poumons, cœur) de l\'abdomen (estomac, foie, intestins). Principal muscle de l\'inspiration : en se contractant, il s\'aplatit vers le bas, ce qui augmente le volume de la cage thoracique et aspire l\'air dans les poumons.', introLecon: 'bloc2-s1-l2', sources: [{ auteur: 'McCoy', reference: 'Ch. 8, p. 88-90' }, { auteur: 'Dayme', reference: 'Ch. 6, p. 68-71' }] },
+  { terme: 'Intercostaux (muscles)', categorie: 'anatomie', definition: 'Muscles situés entre les côtes. Deux couches : intercostaux externes (principalement inspiratoires — soulèvent les côtes et élargissent le thorax) et intercostaux internes (principalement expiratoires — abaissent les côtes). Leur antagonisme permet de réguler finement le débit d\'air pendant le chant.', introLecon: 'bloc2-s1-l2', sources: [{ auteur: 'McCoy', reference: 'Ch. 8, p. 90-92' }] },
+  { terme: 'Muscles abdominaux', categorie: 'anatomie', definition: 'Ensemble de muscles de la paroi abdominale : rectus abdominis (les "tablettes"), obliques externes et internes, transverse. Acteurs principaux de l\'expiration active. En se contractant, ils pressent les viscères contre le diaphragme, ce qui expulse l\'air des poumons.', introLecon: 'bloc2-s1-l2', sources: [{ auteur: 'McCoy', reference: 'Ch. 8, p. 92-95' }] },
+  { terme: 'Cage thoracique', categorie: 'anatomie', definition: 'Structure osseuse formée par les 12 paires de côtes, le sternum à l\'avant, et les vertèbres thoraciques à l\'arrière. Elle protège les poumons et le cœur, et son volume varie lors de la respiration.', introLecon: 'bloc2-s1-l2' },
+  { terme: 'Poumons', categorie: 'anatomie', definition: 'Organes spongieux logés dans la cage thoracique. Ils n\'ont aucun muscle propre — leur remplissage et vidage dépendent entièrement des muscles respiratoires qui modifient le volume du thorax.', introLecon: 'bloc2-s1-l2' },
+  { terme: 'Antagonisme musculaire', categorie: 'anatomie', definition: 'Interaction entre deux muscles ou groupes musculaires qui tirent dans des directions opposées, permettant un contrôle fin du mouvement. En respiration chantée : les muscles inspiratoires (diaphragme, intercostaux externes) continuent de travailler même pendant l\'expiration, pour ralentir le mouvement expiratoire des muscles abdominaux.', introLecon: 'bloc2-s1-l2', noteApprofondissement: 'Concept central pour comprendre le "soutien" (leçon 2-3).' },
+  { terme: 'Pression sous-glottique', categorie: 'anatomie', definition: 'Pression de l\'air sous la glotte (sous les cordes vocales), créée par l\'expiration quand les cordes sont partiellement ou totalement fermées. C\'est cette pression qui met les cordes vocales en vibration. Son niveau détermine en grande partie l\'intensité du son.', introLecon: 'bloc2-s1-l2', sources: [{ auteur: 'Dayme', reference: 'Ch. 6, p. 84-86' }], noteApprofondissement: 'Concept transversal : Bloc 2 (physiologie), Bloc 4 (acoustique).' },
 ];
 
 /* ============================================================
@@ -2252,6 +2852,7 @@ function GlossaryView({ onClose, onNavigateToLesson }) {
   const categories = [
     { id: 'tous', label: 'Tous' },
     { id: 'musique', label: 'Musique' },
+    { id: 'anatomie', label: 'Anatomie' },
     { id: 'acoustique', label: 'Acoustique' },
     { id: 'pedagogie', label: 'Pédagogie vocale' },
   ];
