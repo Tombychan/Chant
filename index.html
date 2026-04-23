@@ -416,6 +416,8 @@ const INITIAL_STATE = {
       'bloc1-s1-l4': { statut: 'non_demarree', date_demarrage: null, date_completion: null, duree_reelle_minutes: null },
       'bloc1-s1-l5': { statut: 'non_demarree', date_demarrage: null, date_completion: null, duree_reelle_minutes: null },
       'bloc1-s1-l6': { statut: 'non_demarree', date_demarrage: null, date_completion: null, duree_reelle_minutes: null },
+      'bloc2-s1-l1': { statut: 'non_demarree', date_demarrage: null, date_completion: null, duree_reelle_minutes: null },
+      'bloc2-s1-l2': { statut: 'non_demarree', date_demarrage: null, date_completion: null, duree_reelle_minutes: null },
     },
   },
   journal: {
@@ -2599,6 +2601,9 @@ function LessonView({ lessonId, progression, setProgression, onBack }) {
   useEffect(() => {
     if (!lesson) return;
     const current = progression.lecons[lessonId];
+    // Protection défensive : si la leçon n'a pas d'entrée progression (migration pas encore
+    // appliquée, race condition), on ne fait rien plutôt que de planter.
+    if (!current) return;
     if (current.statut === 'non_demarree') {
       setProgression(prev => ({
         ...prev,
@@ -2621,6 +2626,11 @@ function LessonView({ lessonId, progression, setProgression, onBack }) {
       lecons: {
         ...prev.lecons,
         [id]: {
+          // Défensif : si l'entrée n'existe pas, on initialise avec les champs attendus
+          statut: 'non_demarree',
+          date_demarrage: null,
+          date_completion: null,
+          duree_reelle_minutes: null,
           ...prev.lecons[id],
           statut: 'completee',
           date_completion: new Date().toISOString(),
@@ -3213,25 +3223,46 @@ function App() {
   const [showGlossary, setShowGlossary] = useState(false);
   const [needsAudioActivation, setNeedsAudioActivation] = useState(true);
 
-  // Chargement initial : merge localStorage + JSON du repo
+  // Chargement initial : merge localStorage + JSON du repo, puis migration automatique.
+  // La migration ajoute les entries manquantes dans progression.lecons pour les leçons
+  // nouvellement introduites dans LESSON_ORDER (ex : ajout du Bloc 2 alors que le
+  // progression.json ou le localStorage date du Bloc 1 seulement).
+  const migrateProgression = useCallback((prog) => {
+    if (!prog || !prog.lecons) return prog;
+    const patched = { ...prog.lecons };
+    let changed = false;
+    for (const id of LESSON_ORDER) {
+      if (!patched[id]) {
+        patched[id] = { statut: 'non_demarree', date_demarrage: null, date_completion: null, duree_reelle_minutes: null };
+        changed = true;
+      }
+    }
+    if (!changed) return prog;
+    return { ...prog, lecons: patched };
+  }, []);
+
   useEffect(() => {
     (async () => {
       const repoData = await loadStateFromRepo();
       const lsData = loadStateFromLS();
 
-      if (lsData) {
-        // localStorage a priorité si plus récent (heuristique simple : existe = prioritaire)
-        setState({
-          progression: lsData.progression || repoData.progression,
-          journal: lsData.journal || repoData.journal,
-          tessiture: lsData.tessiture || repoData.tessiture,
-          vocabulaire_enseignante: lsData.vocabulaire_enseignante || repoData.vocabulaire_enseignante,
-        });
-      } else {
-        setState(repoData);
-      }
+      const base = lsData ? {
+        progression: lsData.progression || repoData.progression,
+        journal: lsData.journal || repoData.journal,
+        tessiture: lsData.tessiture || repoData.tessiture,
+        vocabulaire_enseignante: lsData.vocabulaire_enseignante || repoData.vocabulaire_enseignante,
+      } : repoData;
+
+      // Migration défensive : si de nouvelles leçons ont été ajoutées au code
+      // sans que progression.json soit mis à jour, on patch les entrées manquantes.
+      const migrated = {
+        ...base,
+        progression: migrateProgression(base.progression),
+      };
+
+      setState(migrated);
     })();
-  }, []);
+  }, [migrateProgression]);
 
   // Sauvegarde automatique dans localStorage
   useEffect(() => {
