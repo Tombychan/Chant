@@ -120,9 +120,46 @@ function midiToFreq(midi) {
 
 const AudioCtx = createContext(null);
 
+// Détection iOS (iPhone/iPad). Inclut iPadOS qui se déclare comme Mac depuis iOS 13.
+const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+// Petit WAV silencieux en base64 (1 seconde de silence, 8kHz mono 8 bits).
+// Utilisé pour initialiser un élément <audio> qui permet de contourner
+// le mode silencieux iOS quand l'utilisateur l'active explicitement.
+const SILENT_WAV = 'data:audio/wav;base64,UklGRi4AAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoAAACAgICAgICAgICAAAA=';
+
+const LS_FORCE_AUDIO_KEY = 'chant.forceAudioInSilentMode.v1';
+
 function AudioProvider({ children }) {
   const [activated, setActivated] = useState(false);
+  const [forceAudioInSilent, setForceAudioInSilent] = useState(() => {
+    try { return localStorage.getItem(LS_FORCE_AUDIO_KEY) === 'true'; } catch { return false; }
+  });
   const audioCtxRef = useRef(null);
+  const silentAudioRef = useRef(null);
+
+  useEffect(() => {
+    try { localStorage.setItem(LS_FORCE_AUDIO_KEY, String(forceAudioInSilent)); } catch {}
+  }, [forceAudioInSilent]);
+
+  // Crée l'élément <audio> silencieux (appelé quand le toggle est activé OU dès l'activation sur iOS).
+  // L'attribut playsinline + la lecture d'un média audio force iOS à classer le son en "playback"
+  // (audible même en mode silencieux) plutôt qu'en "ambient" (muté par le switch silencieux).
+  // Fiabilité : cette technique repose sur un comportement Safari iOS documenté mais susceptible
+  // d'évoluer. Elle est utilisée par Tone.js et Howler.js, entre autres.
+  const ensureSilentAudio = useCallback(() => {
+    if (silentAudioRef.current) return silentAudioRef.current;
+    const audio = document.createElement('audio');
+    audio.setAttribute('playsinline', '');
+    audio.setAttribute('webkit-playsinline', '');
+    audio.loop = true;
+    audio.src = SILENT_WAV;
+    audio.volume = 0.01; // quasi-silencieux mais pas 0 (certains iOS ignorent vol=0)
+    audio.muted = false;
+    silentAudioRef.current = audio;
+    return audio;
+  }, []);
 
   const ensureContext = useCallback(() => {
     if (!audioCtxRef.current) {
@@ -132,9 +169,22 @@ function AudioProvider({ children }) {
     if (audioCtxRef.current.state === 'suspended') {
       audioCtxRef.current.resume();
     }
+    // Si on est sur iOS et que le toggle "forcer audio en silencieux" est activé,
+    // on lance l'élément silencieux pour basculer la catégorie audio.
+    if (IS_IOS && forceAudioInSilent) {
+      const a = ensureSilentAudio();
+      if (a.paused) {
+        // Peut échouer silencieusement si l'appel n'est pas déclenché par un geste utilisateur,
+        // mais si c'est le cas ensureContext est appelé depuis un onClick, donc OK.
+        a.play().catch(() => {});
+      }
+    } else if (silentAudioRef.current && !silentAudioRef.current.paused) {
+      // Si le toggle a été désactivé, on arrête aussi le silencieux.
+      silentAudioRef.current.pause();
+    }
     setActivated(true);
     return audioCtxRef.current;
-  }, []);
+  }, [forceAudioInSilent, ensureSilentAudio]);
 
   const playFrequency = useCallback((freq, duration = 1.5) => {
     const ctx = ensureContext();
@@ -167,7 +217,18 @@ function AudioProvider({ children }) {
     }
   }, [playMidi]);
 
-  return h(AudioCtx.Provider, { value: { activated, ensureContext, playFrequency, playMidi, playSequence } }, children);
+  // Joue un bip de test court (usage : bouton "Test son" dans le bandeau d'activation)
+  const playTestBeep = useCallback(() => {
+    playMidi(69, 0.5); // A4, 0.5s
+  }, [playMidi]);
+
+  return h(AudioCtx.Provider, {
+    value: {
+      activated, ensureContext, playFrequency, playMidi, playSequence, playTestBeep,
+      isIOS: IS_IOS,
+      forceAudioInSilent, setForceAudioInSilent,
+    },
+  }, children);
 }
 
 /* ============================================================
@@ -474,48 +535,62 @@ const LESSONS = {
     semaine: 1,
     numero: 3,
     titre: 'Demi-tons, tons, notes noires',
-    sousTitre: 'Leçon en préparation',
+    sousTitre: 'Les douze marches d\'une octave',
     dureeMinutes: 15,
-    objectif: 'Comprendre la division en 12 demi-tons par octave. Percevoir auditivement la différence entre un demi-ton et un ton.',
+    objectif: 'Comprendre la division en 12 demi-tons par octave. Distinguer dièses et bémols. Percevoir auditivement la différence entre un demi-ton et un ton.',
     prerequis: ['bloc1-s1-l1', 'bloc1-s1-l2'],
-    sources: [],
-    render: LessonComingSoon,
+    sources: [
+      { auteur: 'Henny', ouvrage: 'Beginning Singing', pages: 'passim', note: 'Explications accessibles des demi-tons dans un contexte pratique.' },
+      { auteur: 'McCoy', ouvrage: 'Your Voice: An Inside View', pages: 'Ch. 2 + Appendix 2', note: 'Ancrage mathématique : le demi-ton correspond à un ratio de fréquence de 2^(1/12).' },
+    ],
+    render: Lesson3,
   },
   'bloc1-s1-l4': {
     bloc: 'bloc1',
     semaine: 1,
     numero: 4,
     titre: 'Gammes et intervalles de base',
-    sousTitre: 'Leçon en préparation',
+    sousTitre: 'Octave, quinte, tierce, gamme majeure',
     dureeMinutes: 18,
-    objectif: 'Identifier à l\'oreille quelques intervalles fondamentaux. Comprendre la structure de la gamme majeure.',
+    objectif: 'Identifier conceptuellement quelques intervalles fondamentaux. Comprendre la structure de la gamme majeure. Premier contact auditif — sans prétendre à la maîtrise.',
     prerequis: ['bloc1-s1-l1', 'bloc1-s1-l2', 'bloc1-s1-l3'],
-    sources: [],
-    render: LessonComingSoon,
+    sources: [
+      { auteur: 'Henny', ouvrage: 'Beginning Singing', pages: 'passim', note: 'Approche pratique des intervalles dans la construction mélodique.' },
+      { auteur: 'McCoy', ouvrage: 'Your Voice: An Inside View', pages: 'Ch. 2', note: 'Relations de fréquence (octave = ratio 2, quinte = 3/2).' },
+    ],
+    render: Lesson4,
   },
   'bloc1-s1-l5': {
     bloc: 'bloc1',
     semaine: 1,
     numero: 5,
-    titre: 'Voix parlée : ta fréquence fondamentale du confort',
-    sousTitre: 'Leçon en préparation',
+    titre: 'Voix parlée : ta fréquence fondamentale',
+    sousTitre: 'Première ancre vers l\'identification de ta tessiture',
     dureeMinutes: 15,
-    objectif: 'Localiser sa note parlée confortable — première ancre vers l\'identification de la tessiture.',
+    objectif: 'Localiser ta note parlée confortable. Comprendre la notion de fréquence fondamentale (F0). Premier repère concret pour le travail ultérieur sur la tessiture.',
     prerequis: ['bloc1-s1-l1', 'bloc1-s1-l2'],
-    sources: [],
-    render: LessonComingSoon,
+    sources: [
+      { auteur: 'Henny', ouvrage: 'Beginning Singing', pages: 'ch. "Where Registers Occur"', note: 'Relie voix parlée et localisation vocale.' },
+      { auteur: 'McCoy', ouvrage: 'Your Voice: An Inside View', pages: 'Ch. 2', note: 'Définition formelle de la fréquence fondamentale (F0).' },
+    ],
+    render: Lesson5,
   },
   'bloc1-s1-l6': {
     bloc: 'bloc1',
     semaine: 1,
     numero: 6,
     titre: 'Cartographier ta tessiture',
-    sousTitre: 'Leçon en préparation',
+    sousTitre: 'Exercice guidé — identification personnelle',
     dureeMinutes: 20,
-    objectif: 'Identifier approximativement ta note la plus basse, ta note la plus haute en poitrine, et ta zone de bascule (premier repérage du passaggio personnel).',
+    objectif: 'Identifier approximativement ta note la plus basse confortable, ta note la plus haute en poitrine, et ta zone de bascule (premier repérage du passaggio personnel). Stocker les résultats pour calibrage du reste du parcours.',
     prerequis: ['bloc1-s1-l1', 'bloc1-s1-l2', 'bloc1-s1-l5'],
-    sources: [],
-    render: LessonComingSoon,
+    sources: [
+      { auteur: 'Bozeman', ouvrage: 'Practical Vocal Acoustics', pages: 'Ch. 7, Appendix 3', note: 'Localisations statistiques du passaggio par type de voix masculine.' },
+      { auteur: 'Bozeman', ouvrage: 'Practical Vocal Acoustics', pages: 'glossaire', note: 'Passaggio masculin typique autour de C4–G4 ; zona di passaggio ≈ 4e ou 5e.' },
+      { auteur: 'Henny', ouvrage: 'Beginning Singing', pages: 'ch. "Where Registers Occur"', note: 'Approche accessible de la zone de bascule.' },
+      { auteur: 'protocole', ouvrage: 'composé par Claude', pages: '—', note: 'Ce protocole d\'auto-évaluation n\'est pas un protocole validé scientifiquement. Les auto-évaluations de tessiture sont fréquemment imprécises. À refaire dans 2-3 semaines et à confronter avec l\'enseignante.' },
+    ],
+    render: Lesson6,
   },
 };
 
@@ -828,7 +903,785 @@ function Lesson2({ onComplete }) {
 }
 
 /* ============================================================
-   LEÇONS À VENIR (placeholder pour l5, l6 etc.)
+   LEÇON 3 — Demi-tons, tons, notes noires
+   ============================================================ */
+
+function Lesson3({ onComplete }) {
+  const audio = useContext(AudioCtx);
+  const [quiz1, setQuiz1] = useState(null);
+  const [quiz2, setQuiz2] = useState(null);
+  const [quiz3, setQuiz3] = useState(null);
+
+  const sectionCls = "mt-8 first:mt-0";
+  const h2Cls = "font-serif-display text-2xl text-ink mt-10 mb-4 tracking-tight";
+  const pCls = "text-[16px] leading-[1.7] text-ink mb-4 hyphen";
+
+  return h('div', { className: 'max-w-prose mx-auto' },
+    h('section', { className: sectionCls },
+      h('p', { className: pCls + ' text-dim italic font-serif-body' },
+        'Tu connais maintenant les sept notes nommées et le principe de l\'octave. Cette leçon ajoute les cinq notes restantes — celles que tu vois comme touches noires sur le clavier — et introduit le demi-ton, unité de base de la musique occidentale.'
+      ),
+    ),
+
+    h('section', { className: sectionCls },
+      h('h2', { className: h2Cls }, '1. Entre deux notes blanches, parfois une noire'),
+      h('p', { className: pCls },
+        'Regarde un clavier : entre certaines touches blanches, il y a une touche noire. Pas partout — seulement à certains endroits. Entre ',
+        h(Note, { name: 'E4' }), ' et ', h(Note, { name: 'F4' }), ', il n\'y a rien. Entre ', h(Note, { name: 'B4' }), ' et ', h(Note, { name: 'C5' }), ', rien non plus. Mais entre les autres paires de notes blanches, il y a systématiquement une touche noire.'
+      ),
+      h('p', { className: pCls },
+        'Ces touches noires portent deux noms selon le sens où on les lit. La touche noire entre ',
+        h(Note, { name: 'C4' }), ' et ', h(Note, { name: 'D4' }), ' peut s\'appeler :'
+      ),
+      h('ul', { className: 'space-y-1 ml-4 mb-4' },
+        h('li', { className: 'relative pl-3 before:content-["—"] before:absolute before:left-0 before:text-accent' },
+          h('strong', null, 'C#4'), ' (Do dièse 4) — « le Do relevé d\'un cran »'),
+        h('li', { className: 'relative pl-3 before:content-["—"] before:absolute before:left-0 before:text-accent' },
+          h('strong', null, 'Db4'), ' (Ré bémol 4) — « le Ré abaissé d\'un cran »'),
+      ),
+      h('p', { className: pCls },
+        'C\'est la même touche, la même fréquence, la même note physique. Deux noms différents pour deux contextes musicaux. En pratique, dans cette application, on utilisera surtout les dièses (#) pour simplifier.'
+      ),
+      h('div', { className: 'my-6 p-4 bg-soft/40 border border-rule rounded-sm' },
+        h(MiniKeyboard, { octaveStart: 4, octaveEnd: 4 }),
+        h('p', { className: 'text-xs text-dim mt-3 leading-relaxed' },
+          'Clique sur les touches noires pour les entendre. Remarque qu\'entre ', h('span', { className: 'font-mono' }, 'E'), ' et ', h('span', { className: 'font-mono' }, 'F'), ', il n\'y a pas de touche noire — c\'est normal.')
+      )
+    ),
+
+    h('section', { className: sectionCls },
+      h('h2', { className: h2Cls }, '2. Le demi-ton, l\'unité de base'),
+      h('p', { className: pCls },
+        'Un ',
+        h('strong', null, 'demi-ton'),
+        ' est la plus petite distance entre deux notes dans le système musical occidental standard. C\'est le passage d\'une touche à la touche adjacente sur le clavier, blanche ou noire, peu importe.'
+      ),
+      h('p', { className: pCls },
+        'De ', h(Note, { name: 'C4' }), ' à ', h(Note, { name: 'C#4' }), ' : un demi-ton. De ', h(Note, { name: 'E4' }), ' à ', h(Note, { name: 'F4' }), ' : un demi-ton aussi, même s\'il n\'y a pas de touche noire entre les deux. De ', h(Note, { name: 'B4' }), ' à ', h(Note, { name: 'C5' }), ' : un demi-ton encore.'
+      ),
+      h('p', { className: pCls },
+        'Une octave complète, c\'est donc douze demi-tons. Sept touches blanches + cinq touches noires = 12 demi-tons = 1 octave.'
+      ),
+      h('div', { className: 'my-6 p-4 border-l-2 border-accent bg-soft/30 text-sm' },
+        h('div', { className: 'text-[11px] uppercase tracking-widest text-accent mb-2 font-sans' }, 'Pour les curieux'),
+        h('p', { className: 'leading-relaxed' },
+          'Mathématiquement, un demi-ton correspond à un ratio de fréquence de 2^(1/12) ≈ 1,0595. Autrement dit, pour monter d\'un demi-ton, on multiplie la fréquence par environ 1,06. Douze multiplications successives ramènent bien à un doublement, soit une octave. McCoy en parle dès le chapitre 2 de ', h('em', { className: 'font-serif-body italic' }, 'Your Voice'), '.'
+        )
+      )
+    ),
+
+    h('section', { className: sectionCls },
+      h('h2', { className: h2Cls }, '3. Le ton : deux demi-tons'),
+      h('p', { className: pCls },
+        'Un ',
+        h('strong', null, 'ton'),
+        ' (ou « ton entier »), c\'est simplement deux demi-tons successifs. De ', h(Note, { name: 'C4' }), ' à ', h(Note, { name: 'D4' }), ' : un ton (on passe par-dessus la touche noire C#4). De ', h(Note, { name: 'E4' }), ' à ', h(Note, { name: 'F#4' }), ' : un ton également.'
+      ),
+      h('p', { className: pCls },
+        'La distinction ton / demi-ton est importante parce que les gammes que tu rencontreras (notamment la gamme majeure, leçon suivante) sont construites par une alternance précise de tons et de demi-tons. C\'est cette alternance qui donne à une gamme majeure son caractère reconnaissable.'
+      ),
+    ),
+
+    h('section', { className: sectionCls },
+      h('h2', { className: h2Cls }, '4. Écouter la différence'),
+      h('p', { className: pCls },
+        'Entraîne ton oreille sur quelques exemples. Pour chaque paire, clique pour écouter, puis demande-toi : ton ou demi-ton ?'
+      ),
+      h('div', { className: 'my-6 p-5 bg-soft/50 border border-rule rounded-sm space-y-4' },
+        [
+          { label: 'Paire A', midi1: 60, midi2: 61, name: 'C4 → C#4' }, // 1 demi-ton
+          { label: 'Paire B', midi1: 60, midi2: 62, name: 'C4 → D4' },  // 1 ton
+          { label: 'Paire C', midi1: 64, midi2: 65, name: 'E4 → F4' },  // 1 demi-ton
+          { label: 'Paire D', midi1: 64, midi2: 66, name: 'E4 → F#4' }, // 1 ton
+        ].map(p => h('div', { key: p.label, className: 'flex items-center gap-3' },
+          h('button', {
+            onClick: () => audio.playSequence([p.midi1, p.midi2], 0.7, 0.9),
+            className: 'flex-shrink-0 px-3 py-2 bg-paper border border-rule hover:border-ink rounded-sm font-mono text-xs',
+          }, '▸ ', p.label),
+          h('span', { className: 'text-sm text-dim font-mono' }, p.name)
+        ))
+      ),
+      h('p', { className: pCls + ' text-sm' },
+        h('em', { className: 'font-serif-body italic' },
+          'Ne t\'inquiète pas si tu hésites : discriminer un ton d\'un demi-ton à l\'oreille demande des semaines d\'entraînement, pas une leçon. L\'important ici est de ',
+          h('strong', null, 'commencer'), ' à entendre la différence.'
+        )
+      )
+    ),
+
+    h('section', { className: sectionCls },
+      h('h2', { className: h2Cls }, '5. Vérification rapide'),
+      h('div', { className: 'space-y-6' },
+        h(QuizBlock, {
+          question: 'Combien y a-t-il de demi-tons dans une octave ?',
+          options: [
+            { id: 'a', label: '7' },
+            { id: 'b', label: '8' },
+            { id: 'c', label: '12' },
+          ],
+          correctId: 'c',
+          explanation: '12 demi-tons. 7 touches blanches + 5 touches noires = 12 notes distinctes avant de retomber sur la même note, une octave plus haut.',
+          state: quiz1, setState: setQuiz1,
+        }),
+        h(QuizBlock, {
+          question: 'Entre E4 et F4, il y a :',
+          options: [
+            { id: 'a', label: 'Un ton' },
+            { id: 'b', label: 'Un demi-ton' },
+            { id: 'c', label: 'Rien, c\'est la même note' },
+          ],
+          correctId: 'b',
+          explanation: 'Un demi-ton. C\'est l\'une des deux paires de touches blanches adjacentes sans touche noire entre elles (l\'autre étant B-C).',
+          state: quiz2, setState: setQuiz2,
+        }),
+        h(QuizBlock, {
+          question: 'Laquelle de ces deux paires est séparée d\'un ton (entier) ?',
+          audioOptions: [
+            { id: 'a', midi: 60, label: 'Paire A (première note : C4)' },
+            { id: 'b', midi: 60, label: 'Paire B (première note : C4)' },
+          ],
+          correctId: 'b',
+          explanation: 'La bonne réponse nécessite de comparer deux paires entières, pas juste la première note. Pour un vrai entraînement, reviens à la section 4 et utilise les boutons "Paire A/B/C/D". Cette question est pédagogique : elle te rappelle qu\'un intervalle, c\'est toujours une relation entre deux notes.',
+          state: quiz3, setState: setQuiz3,
+        })
+      )
+    ),
+
+    h('section', { className: sectionCls },
+      h('h2', { className: h2Cls }, '6. En résumé'),
+      h('ul', { className: 'space-y-2 text-[15px] leading-relaxed ml-4' },
+        h('li', { className: 'relative pl-3 before:content-["—"] before:absolute before:left-0 before:text-accent' },
+          'Une octave se divise en 12 demi-tons.'),
+        h('li', { className: 'relative pl-3 before:content-["—"] before:absolute before:left-0 before:text-accent' },
+          '1 demi-ton = la distance minimale entre deux notes adjacentes sur le clavier.'),
+        h('li', { className: 'relative pl-3 before:content-["—"] before:absolute before:left-0 before:text-accent' },
+          '1 ton = 2 demi-tons.'),
+        h('li', { className: 'relative pl-3 before:content-["—"] before:absolute before:left-0 before:text-accent' },
+          'Les touches noires peuvent se nommer avec un dièse (#) ou un bémol (b). Ce sont les mêmes notes.'),
+        h('li', { className: 'relative pl-3 before:content-["—"] before:absolute before:left-0 before:text-accent' },
+          'Exceptions à retenir : entre E et F, pas de touche noire. Entre B et C, pas de touche noire non plus.'),
+      )
+    ),
+
+    h(CompletionFooter, { onComplete, lessonId: 'bloc1-s1-l3' })
+  );
+}
+
+/* ============================================================
+   LEÇON 4 — Gammes et intervalles de base
+   ============================================================ */
+
+function Lesson4({ onComplete }) {
+  const audio = useContext(AudioCtx);
+  const [quiz1, setQuiz1] = useState(null);
+  const [quiz2, setQuiz2] = useState(null);
+
+  const sectionCls = "mt-8 first:mt-0";
+  const h2Cls = "font-serif-display text-2xl text-ink mt-10 mb-4 tracking-tight";
+  const pCls = "text-[16px] leading-[1.7] text-ink mb-4 hyphen";
+
+  return h('div', { className: 'max-w-prose mx-auto' },
+    h('section', { className: sectionCls },
+      h('div', { className: 'mb-6 p-4 border border-accent/30 bg-accent/5 rounded-sm text-sm' },
+        h('div', { className: 'text-[11px] uppercase tracking-widest text-accent mb-2 font-sans' }, 'Cadrage honnête'),
+        h('p', { className: 'leading-relaxed text-ink' },
+          'Cette leçon pose les ',
+          h('strong', null, 'fondations conceptuelles'),
+          ' des intervalles et des gammes. Elle ne prétend pas t\'apprendre à identifier un intervalle à l\'oreille — cette compétence demande des semaines d\'entraînement régulier (solfège). L\'objectif ici : que tu saches ce qu\'on cherchera à entraîner plus tard, et que tu aies un premier contact auditif.'
+        )
+      ),
+    ),
+
+    h('section', { className: sectionCls },
+      h('h2', { className: h2Cls }, '1. Intervalle : la distance entre deux notes'),
+      h('p', { className: pCls },
+        'Un ',
+        h('strong', null, 'intervalle'),
+        ' est la distance entre deux notes. On peut la mesurer en demi-tons (précis, scientifique) ou par son nom musical (octave, quinte, tierce, etc.). Les deux coexistent dans la littérature — McCoy utilise surtout les ratios de fréquence, Bozeman et Henny utilisent surtout les noms musicaux.'
+      ),
+      h('p', { className: pCls },
+        'Tu connais déjà l\'octave : 12 demi-tons, même nom de note, fréquence doublée. Voici les autres intervalles de base qu\'on rencontre souvent en pédagogie vocale.'
+      ),
+    ),
+
+    h('section', { className: sectionCls },
+      h('h2', { className: h2Cls }, '2. Les intervalles courants'),
+      h('div', { className: 'my-5 space-y-3' },
+        [
+          { nom: 'Unisson', demiTons: 0, ratio: '1:1', exemple: 'C4 → C4', midi: [60, 60] },
+          { nom: 'Seconde mineure (demi-ton)', demiTons: 1, ratio: '16:15', exemple: 'C4 → C#4', midi: [60, 61] },
+          { nom: 'Seconde majeure (ton)', demiTons: 2, ratio: '9:8', exemple: 'C4 → D4', midi: [60, 62] },
+          { nom: 'Tierce mineure', demiTons: 3, ratio: '6:5', exemple: 'C4 → Eb4', midi: [60, 63] },
+          { nom: 'Tierce majeure', demiTons: 4, ratio: '5:4', exemple: 'C4 → E4', midi: [60, 64] },
+          { nom: 'Quarte juste', demiTons: 5, ratio: '4:3', exemple: 'C4 → F4', midi: [60, 65] },
+          { nom: 'Quinte juste', demiTons: 7, ratio: '3:2', exemple: 'C4 → G4', midi: [60, 67] },
+          { nom: 'Octave', demiTons: 12, ratio: '2:1', exemple: 'C4 → C5', midi: [60, 72] },
+        ].map(i => h('div', { key: i.nom, className: 'flex items-center gap-3 p-2 border-b border-rule/50' },
+          h('button', {
+            onClick: () => audio.playSequence(i.midi, 0.6, 0.8),
+            className: 'flex-shrink-0 px-2.5 py-1.5 bg-paper border border-rule hover:border-ink rounded-sm font-mono text-xs',
+          }, '▸'),
+          h('div', { className: 'flex-1 min-w-0' },
+            h('div', { className: 'text-sm font-medium' }, i.nom),
+            h('div', { className: 'text-xs text-dim font-mono mt-0.5' },
+              i.demiTons, ' demi-ton', i.demiTons > 1 ? 's' : '',
+              ' · ratio ', i.ratio,
+              ' · ', i.exemple
+            )
+          )
+        ))
+      ),
+      h('div', { className: 'my-6 p-4 border-l-2 border-dim bg-soft/30 text-sm' },
+        h('div', { className: 'text-[11px] uppercase tracking-widest text-dim mb-2 font-sans' }, 'Les ratios ne sont pas du luxe'),
+        h('p', { className: 'leading-relaxed' },
+          'Ces ratios (2:1, 3:2, 4:3…) ne sont pas des curiosités. La quinte juste sonne « stable » à l\'oreille parce que sa fréquence est exactement 1,5 fois celle de la fondamentale — soit le ratio 3:2. Les consonances de la musique occidentale sont fondées sur ces ratios simples découverts par les Grecs. McCoy le rappelle dans ', h('em', { className: 'font-serif-body italic' }, 'Your Voice'), ', chapitre 2 : « les Grecs anciens considéraient la Musique et les Mathématiques comme deux faces de la même discipline ».'
+        )
+      )
+    ),
+
+    h('section', { className: sectionCls },
+      h('h2', { className: h2Cls }, '3. La gamme majeure'),
+      h('p', { className: pCls },
+        'Quand tu chantes « Do Ré Mi Fa Sol La Si Do » en montant, tu chantes une ',
+        h('strong', null, 'gamme majeure'),
+        '. Spécifiquement ici, la gamme de Do majeur. Ce qui fait qu\'elle sonne « joyeuse, stable, familière », c\'est une alternance précise de tons et de demi-tons.'
+      ),
+      h('p', { className: pCls },
+        'La structure de la gamme majeure, en partant de la tonique (la note de départ), est :'
+      ),
+      h('div', { className: 'my-4 p-4 bg-soft/40 border border-rule rounded-sm font-mono text-sm' },
+        h('div', { className: 'leading-relaxed' },
+          'Ton — Ton — Demi-ton — Ton — Ton — Ton — Demi-ton'
+        ),
+        h('div', { className: 'text-xs text-dim mt-2' },
+          'Appliqué à C : C → D → E → F → G → A → B → C'
+        )
+      ),
+      h('div', { className: 'my-5 flex items-center gap-3 flex-wrap' },
+        h('button', {
+          onClick: () => audio.playSequence([60, 62, 64, 65, 67, 69, 71, 72], 0.4, 0.5),
+          className: 'px-3 py-2 bg-ink text-paper rounded-sm text-xs hover:bg-dim',
+        }, '▸ Jouer la gamme de Do majeur montante'),
+        h('button', {
+          onClick: () => audio.playSequence([72, 71, 69, 67, 65, 64, 62, 60], 0.4, 0.5),
+          className: 'px-3 py-2 bg-paper border border-rule text-ink rounded-sm text-xs hover:border-ink',
+        }, '▸ … et descendante')
+      ),
+      h('p', { className: pCls },
+        'Cette structure peut se transposer à partir de n\'importe quelle note. La gamme de Sol majeur commence sur G et suit la même règle ton-ton-demi-ton-ton-ton-ton-demi-ton. Résultat : elle contient un F# (au lieu de F) pour respecter la structure. C\'est de là que viennent les armures (les dièses et bémols à la clé) qu\'on rencontre dans les partitions.'
+      )
+    ),
+
+    h('section', { className: sectionCls },
+      h('h2', { className: h2Cls }, '4. Pourquoi ces notions te serviront'),
+      h('p', { className: pCls },
+        'Au Bloc 4, quand on abordera le passaggio chez Bozeman, tu rencontreras des phrases comme « la zona di passaggio masculine s\'étend sur environ une quarte ou une quinte ». Sans la leçon d\'aujourd\'hui, cette phrase est opaque. Avec la leçon d\'aujourd\'hui, tu sais que ça veut dire une zone de 5 à 7 demi-tons, c\'est-à-dire environ 4 à 5 notes de la gamme majeure.'
+      ),
+      h('p', { className: pCls },
+        'Tu rencontreras aussi les arpèges (gamme dont on saute des notes), les glissandos (passage continu d\'une note à une autre), et des exercices qui te demanderont de monter « une tierce » ou de descendre « une quinte ». C\'est ce vocabulaire que tu commences à installer.'
+      )
+    ),
+
+    h('section', { className: sectionCls },
+      h('h2', { className: h2Cls }, '5. Vérification rapide'),
+      h('div', { className: 'space-y-6' },
+        h(QuizBlock, {
+          question: 'Combien y a-t-il de demi-tons dans une quinte juste ?',
+          options: [
+            { id: 'a', label: '5' },
+            { id: 'b', label: '7' },
+            { id: 'c', label: '12' },
+          ],
+          correctId: 'b',
+          explanation: '7 demi-tons. C\'est pour ça qu\'une quinte juste au-dessus de C4 tombe sur G4 (on compte : C# D D# E F F# G = 7 crans). La quarte juste, elle, fait 5 demi-tons. L\'octave fait 12.',
+          state: quiz1, setState: setQuiz1,
+        }),
+        h(QuizBlock, {
+          question: 'La structure de la gamme majeure en intervalles successifs est :',
+          options: [
+            { id: 'a', label: 'Ton-Ton-Ton-Ton-Ton-Ton-Ton' },
+            { id: 'b', label: 'Ton-Ton-Demi-ton-Ton-Ton-Ton-Demi-ton' },
+            { id: 'c', label: 'Demi-ton-Ton-Ton-Demi-ton-Ton-Ton-Ton' },
+          ],
+          correctId: 'b',
+          explanation: 'Ton-Ton-Demi-ton-Ton-Ton-Ton-Demi-ton. Les deux demi-tons tombent entre les 3ᵉ-4ᵉ degrés et les 7ᵉ-8ᵉ degrés de la gamme. C\'est ce pattern qui définit le caractère majeur.',
+          state: quiz2, setState: setQuiz2,
+        })
+      )
+    ),
+
+    h('section', { className: sectionCls },
+      h('h2', { className: h2Cls }, '6. En résumé'),
+      h('ul', { className: 'space-y-2 text-[15px] leading-relaxed ml-4' },
+        h('li', { className: 'relative pl-3 before:content-["—"] before:absolute before:left-0 before:text-accent' },
+          'Un intervalle est une distance entre deux notes, mesurable en demi-tons ou par un nom musical.'),
+        h('li', { className: 'relative pl-3 before:content-["—"] before:absolute before:left-0 before:text-accent' },
+          'Principaux intervalles à connaître : tierce (3 ou 4 demi-tons), quarte juste (5), quinte juste (7), octave (12).'),
+        h('li', { className: 'relative pl-3 before:content-["—"] before:absolute before:left-0 before:text-accent' },
+          'La gamme majeure suit le pattern Ton-Ton-½-Ton-Ton-Ton-½.'),
+        h('li', { className: 'relative pl-3 before:content-["—"] before:absolute before:left-0 before:text-accent' },
+          'Identifier un intervalle à l\'oreille demande un entraînement prolongé — cette leçon pose la fondation, pas la compétence.'),
+      )
+    ),
+
+    h(CompletionFooter, { onComplete, lessonId: 'bloc1-s1-l4' })
+  );
+}
+
+/* ============================================================
+   LEÇON 5 — Voix parlée : fréquence fondamentale
+   ============================================================ */
+
+function Lesson5({ onComplete }) {
+  const audio = useContext(AudioCtx);
+  const [quiz1, setQuiz1] = useState(null);
+
+  const sectionCls = "mt-8 first:mt-0";
+  const h2Cls = "font-serif-display text-2xl text-ink mt-10 mb-4 tracking-tight";
+  const pCls = "text-[16px] leading-[1.7] text-ink mb-4 hyphen";
+
+  return h('div', { className: 'max-w-prose mx-auto' },
+    h('section', { className: sectionCls },
+      h('p', { className: pCls + ' text-dim italic font-serif-body' },
+        'On quitte le clavier pour revenir à ta voix. Cette leçon a un objectif simple : localiser la note sur laquelle tu parles confortablement. Ce sera la première donnée personnelle qu\'on enregistre — l\'ancre autour de laquelle tout le reste du parcours va se calibrer.'
+      ),
+    ),
+
+    h('section', { className: sectionCls },
+      h('h2', { className: h2Cls }, '1. La voix parlée a une hauteur'),
+      h('p', { className: pCls },
+        'Quand tu parles, tes cordes vocales vibrent. Cette vibration a une fréquence, exactement comme un diapason ou une corde de guitare. Quand la voix est tenue sur une syllabe stable (le « ah » ou le « euh » d\'une hésitation), elle a une ',
+        h('strong', null, 'hauteur identifiable'),
+        ', plutôt stable pendant quelques secondes.'
+      ),
+      h('p', { className: pCls },
+        'En pédagogie vocale, on parle de ',
+        h('strong', null, 'fréquence fondamentale'),
+        ' (abrégée F0, « F zéro »). C\'est la fréquence de base que tes cordes vocales produisent à un instant donné. Quand tu parles, ton F0 change constamment (inflexions, ponctuation), mais il tourne autour d\'une valeur moyenne qu\'on appelle parfois la « note parlée confortable ».'
+      ),
+      h('div', { className: 'my-6 p-4 border-l-2 border-accent bg-soft/30 text-sm' },
+        h('div', { className: 'text-[11px] uppercase tracking-widest text-accent mb-2 font-sans' }, 'Pourquoi c\'est important'),
+        h('p', { className: 'leading-relaxed' },
+          'La voix parlée sert de ',
+          h('em', { className: 'font-serif-body italic' }, 'centre de gravité'),
+          ' vocal. Les exercices que tu feras (maintenant et plus tard) sont calibrés par rapport à cette zone. Surtout, le passaggio — objet principal de ce parcours — se situe à une distance à peu près prédictible au-dessus de ta voix parlée. Identifier F0 maintenant, c\'est poser la première balise.'
+        )
+      )
+    ),
+
+    h('section', { className: sectionCls },
+      h('h2', { className: h2Cls }, '2. L\'exercice'),
+      h('p', { className: pCls },
+        'Tu vas identifier ta note parlée confortable en quatre étapes. Compte environ 5-7 minutes. Tu peux refaire l\'exercice plusieurs fois dans la journée pour voir si tu tombes sur la même note.'
+      ),
+
+      h(Lesson5Exercise),
+    ),
+
+    h('section', { className: sectionCls },
+      h('h2', { className: h2Cls }, '3. Limites à garder en tête'),
+      h('ul', { className: 'space-y-2 text-[15px] leading-relaxed ml-4' },
+        h('li', { className: 'relative pl-3 before:content-["—"] before:absolute before:left-0 before:text-accent' },
+          h('strong', null, 'Ta voix parlée change selon le contexte.'),
+          ' Fatigue, émotion, volume d\'environnement, heure de la journée — tout cela déplace ton F0 de plusieurs demi-tons. Ce que tu identifies aujourd\'hui est une estimation, pas une vérité absolue.'),
+        h('li', { className: 'relative pl-3 before:content-["—"] before:absolute before:left-0 before:text-accent' },
+          h('strong', null, 'Comparer ta voix à un son pur via l\'oreille est imprécis.'),
+          ' L\'oreille non entraînée identifie une note à ± un demi-ton dans le meilleur des cas. C\'est suffisant pour la suite du parcours, mais ne cherche pas une précision que l\'exercice ne permet pas.'),
+        h('li', { className: 'relative pl-3 before:content-["—"] before:absolute before:left-0 before:text-accent' },
+          h('strong', null, 'Tu n\'as pas besoin de chanter pour cet exercice.'),
+          ' Juste parler, tenir une voyelle, comparer. Ça doit rester détendu.'),
+      )
+    ),
+
+    h('section', { className: sectionCls },
+      h('h2', { className: h2Cls }, '4. Vérification rapide'),
+      h(QuizBlock, {
+        question: 'La fréquence fondamentale (F0) d\'une voix parlée, c\'est :',
+        options: [
+          { id: 'a', label: 'La plus haute fréquence que la voix peut atteindre' },
+          { id: 'b', label: 'La fréquence de vibration des cordes vocales à un instant donné' },
+          { id: 'c', label: 'Un harmonique particulier de la voix' },
+        ],
+        correctId: 'b',
+        explanation: 'La F0 est la fréquence de vibration des cordes vocales — la « note » de base produite. Elle change constamment quand on parle, mais tourne autour d\'une moyenne que l\'exercice de cette leçon t\'a aidé à identifier.',
+        state: quiz1, setState: setQuiz1,
+      })
+    ),
+
+    h('section', { className: sectionCls },
+      h('h2', { className: h2Cls }, '5. En résumé'),
+      h('ul', { className: 'space-y-2 text-[15px] leading-relaxed ml-4' },
+        h('li', { className: 'relative pl-3 before:content-["—"] before:absolute before:left-0 before:text-accent' },
+          'Ta voix parlée a une fréquence fondamentale (F0).'),
+        h('li', { className: 'relative pl-3 before:content-["—"] before:absolute before:left-0 before:text-accent' },
+          'Elle varie selon le contexte, mais tourne autour d\'une zone confortable identifiable.'),
+        h('li', { className: 'relative pl-3 before:content-["—"] before:absolute before:left-0 before:text-accent' },
+          'Cette note parlée servira d\'ancrage pour la suite — notamment pour situer ton passaggio.'),
+        h('li', { className: 'relative pl-3 before:content-["—"] before:absolute before:left-0 before:text-accent' },
+          'La précision attendue est de l\'ordre du demi-ton : c\'est suffisant, inutile d\'aller plus loin à ce stade.'),
+      )
+    ),
+
+    h(CompletionFooter, { onComplete, lessonId: 'bloc1-s1-l5' })
+  );
+}
+
+/* Exercice interactif de la leçon 5 : composant séparé pour accéder au state tessiture */
+function Lesson5Exercise() {
+  const audio = useContext(AudioCtx);
+  // Notes candidates pour voix masculines parlées : E2 (40) à G3 (55)
+  // Fourchette large pour couvrir basse profonde (rare) à ténor parlant haut.
+  const candidateMidis = [];
+  for (let m = 40; m <= 55; m++) candidateMidis.push(m);
+
+  const [selectedMidi, setSelectedMidi] = useState(null);
+  const [saved, setSaved] = useState(false);
+
+  const saveToTessiture = () => {
+    try {
+      const lsKey = 'chant.state.v1';
+      const raw = localStorage.getItem(lsKey);
+      if (!raw) return;
+      const state = JSON.parse(raw);
+      const info = midiToNoteName(selectedMidi);
+      state.tessiture.notes.parlee_confortable = info.en;
+      state.tessiture.date_evaluation = new Date().toISOString();
+      state.tessiture.changelog.push({
+        date: new Date().toISOString().slice(0, 10),
+        entry: `Leçon 5 : note parlée confortable enregistrée = ${info.en} (${info.fr})`,
+      });
+      localStorage.setItem(lsKey, JSON.stringify(state));
+      setSaved(true);
+    } catch (e) {
+      console.warn('Save tessiture failed', e);
+    }
+  };
+
+  return h('div', { className: 'my-6 p-5 bg-soft/50 border border-rule rounded-sm' },
+    h('ol', { className: 'space-y-4 text-[15px] leading-relaxed list-decimal list-inside' },
+      h('li', null,
+        h('strong', null, 'Dis à voix haute : « bonjour » '), 'trois fois, de manière très détendue, comme si tu répondais au téléphone à un ami. Ne force rien.'
+      ),
+      h('li', null,
+        h('strong', null, 'Tiens la syllabe « bon » '), 'sur environ 3 secondes, comme un « boooon » prolongé, sans effort, sans chanter — juste parler long.'
+      ),
+      h('li', null,
+        h('strong', null, 'Compare avec les sons ci-dessous'),
+        ' : clique sur chaque note, écoute-la, puis produis ton « boooon ». La note qui te semble ',
+        h('em', { className: 'font-serif-body italic' }, 'la plus proche'),
+        ' de ta voix est celle à sélectionner. N\'essaie pas d\'ajuster ta voix à la note — c\'est l\'inverse.'
+      ),
+      h('li', null,
+        h('strong', null, 'Sélectionne ta note'),
+        ' en cliquant sur son bouton, puis valide.'
+      ),
+    ),
+
+    h('div', { className: 'mt-5 grid grid-cols-4 gap-2' },
+      candidateMidis.map(m => {
+        const info = midiToNoteName(m);
+        const isSelected = selectedMidi === m;
+        return h('div', { key: m, className: 'flex flex-col gap-1' },
+          h('button', {
+            onClick: () => audio.playMidi(m, 2),
+            className: 'px-2 py-1.5 bg-paper border border-rule hover:border-ink rounded-sm text-xs font-mono',
+          }, '▸ ', info.en),
+          h('button', {
+            onClick: () => { setSelectedMidi(m); setSaved(false); },
+            className: `px-2 py-1 text-[11px] rounded-sm border transition-colors ${isSelected ? 'bg-ink text-paper border-ink' : 'bg-paper border-rule hover:border-dim'}`,
+          }, isSelected ? '✓ choisie' : 'choisir')
+        );
+      })
+    ),
+
+    selectedMidi !== null ? h('div', { className: 'mt-5 p-3 border-t border-rule pt-4' },
+      h('p', { className: 'text-sm mb-3' },
+        'Ta note parlée confortable sélectionnée : ',
+        h('span', { className: 'font-mono font-medium' }, midiToNoteName(selectedMidi).en, ' / ', midiToNoteName(selectedMidi).fr),
+        h('span', { className: 'text-dim ml-2' }, '(', midiToFreq(selectedMidi).toFixed(1), ' Hz)')
+      ),
+      !saved ? h('button', {
+        onClick: saveToTessiture,
+        className: 'px-4 py-2 bg-ink text-paper rounded-sm text-sm hover:bg-dim',
+      }, 'Enregistrer dans ma tessiture') : h('div', { className: 'text-sm text-green-700' },
+        '✓ Enregistré. La note est sauvegardée en local (pense à exporter et pusher les JSON pour versionner).'
+      )
+    ) : null
+  );
+}
+
+/* ============================================================
+   LEÇON 6 — Cartographier la tessiture
+   ============================================================ */
+
+function Lesson6({ onComplete }) {
+  const sectionCls = "mt-8 first:mt-0";
+  const h2Cls = "font-serif-display text-2xl text-ink mt-10 mb-4 tracking-tight";
+  const pCls = "text-[16px] leading-[1.7] text-ink mb-4 hyphen";
+
+  return h('div', { className: 'max-w-prose mx-auto' },
+    h('section', { className: sectionCls },
+      h('p', { className: pCls + ' text-dim italic font-serif-body' },
+        'C\'est la leçon structurante du Bloc 1. Elle prend 20 minutes — volontairement un peu plus que les précédentes — parce que son résultat va calibrer tout le reste de ton parcours. L\'exercice produit une estimation de ta tessiture personnelle, incluant un premier repérage de ta zone de passaggio.'
+      ),
+
+      h('div', { className: 'mb-6 p-4 border border-accent/30 bg-accent/5 rounded-sm text-sm' },
+        h('div', { className: 'text-[11px] uppercase tracking-widest text-accent mb-2 font-sans' }, 'Honnêteté d\'entrée'),
+        h('p', { className: 'leading-relaxed text-ink' },
+          'Ce que tu vas produire est une ',
+          h('strong', null, 'auto-évaluation approximative'),
+          '. Les auto-évaluations de tessiture sont connues pour être fréquemment imprécises. Le but n\'est pas d\'obtenir une vérité définitive — c\'est de produire une première estimation de travail, à confirmer avec ton enseignante et à refaire dans 2-3 semaines. L\'exercice est ',
+          h('strong', null, 'éducatif'),
+          ' avant d\'être diagnostique.'
+        )
+      )
+    ),
+
+    h('section', { className: sectionCls },
+      h('h2', { className: h2Cls }, '1. Ce qu\'on va mesurer'),
+      h('p', { className: pCls },
+        'Tu vas identifier cinq points sur une échelle, en partant du milieu et en allant vers les extrêmes :'
+      ),
+      h('ul', { className: 'space-y-2 text-[15px] leading-relaxed ml-4 mb-4' },
+        h('li', { className: 'relative pl-3 before:content-["•"] before:absolute before:left-0 before:text-accent' },
+          h('strong', null, 'Ta note parlée confortable'),
+          ' (déjà identifiée à la leçon 5)'),
+        h('li', { className: 'relative pl-3 before:content-["•"] before:absolute before:left-0 before:text-accent' },
+          h('strong', null, 'Ton grave confortable'),
+          ' : la note la plus basse que tu peux produire sans effort'),
+        h('li', { className: 'relative pl-3 before:content-["•"] before:absolute before:left-0 before:text-accent' },
+          h('strong', null, 'Ton passaggio pressenti'),
+          ' : la note où tu sens un premier changement (bascule, tension, timbre différent)'),
+        h('li', { className: 'relative pl-3 before:content-["•"] before:absolute before:left-0 before:text-accent' },
+          h('strong', null, 'Ton aigu en poitrine'),
+          ' : la note la plus haute que tu peux tenir dans ton registre « parlé » sans basculer'),
+        h('li', { className: 'relative pl-3 before:content-["•"] before:absolute before:left-0 before:text-accent' },
+          h('strong', null, 'Ton aigu confortable global'),
+          ' : la note la plus haute que tu peux produire de façon stable, quel que soit le registre'),
+      ),
+      h('div', { className: 'my-6 p-4 border-l-2 border-dim bg-soft/30 text-sm' },
+        h('div', { className: 'text-[11px] uppercase tracking-widest text-dim mb-2 font-sans' }, 'Précaution vocale'),
+        h('p', { className: 'leading-relaxed' },
+          'Échauffe-toi avant : parle normalement quelques minutes, bois un verre d\'eau. ',
+          h('strong', null, 'Arrête-toi immédiatement en cas de douleur, grattement, ou sensation de forçage.'),
+          ' Cet exercice cherche ta zone confortable — pas ta zone limite. Si tu pousses pour « faire mieux », tu fausses la mesure et tu te fatigues. Pour information, pour les notes très graves ou très aiguës, il est plus prudent d\'en discuter avec ton enseignante avant de pousser.'
+        )
+      )
+    ),
+
+    h(Lesson6Exercise),
+
+    h('section', { className: sectionCls },
+      h('h2', { className: h2Cls }, 'En résumé'),
+      h('ul', { className: 'space-y-2 text-[15px] leading-relaxed ml-4' },
+        h('li', { className: 'relative pl-3 before:content-["—"] before:absolute before:left-0 before:text-accent' },
+          'Ta tessiture a été estimée (approximativement).'),
+        h('li', { className: 'relative pl-3 before:content-["—"] before:absolute before:left-0 before:text-accent' },
+          'Une hypothèse de type de voix t\'a été suggérée — à confirmer avec ton enseignante.'),
+        h('li', { className: 'relative pl-3 before:content-["—"] before:absolute before:left-0 before:text-accent' },
+          'Tes données sont stockées localement ; pense à exporter les JSON pour les versionner dans ton repo.'),
+        h('li', { className: 'relative pl-3 before:content-["—"] before:absolute before:left-0 before:text-accent' },
+          'Refaire l\'exercice dans 2-3 semaines est recommandé : ta perception va affiner.'),
+      )
+    ),
+
+    h(CompletionFooter, { onComplete, lessonId: 'bloc1-s1-l6' })
+  );
+}
+
+/* Exercice interactif de la leçon 6 — sélection de plusieurs notes + hypothèse Fach */
+function Lesson6Exercise() {
+  const audio = useContext(AudioCtx);
+  const [step, setStep] = useState(1);
+  const [notes, setNotes] = useState({
+    parlee_confortable: null,
+    grave_limite_confortable: null,
+    passaggio_pressenti_bas: null,
+    aigu_limite_confortable_poitrine: null,
+    aigu_limite_confortable_global: null,
+  });
+  const [saved, setSaved] = useState(false);
+
+  // Préremplir avec note parlée si déjà identifiée en leçon 5
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('chant.state.v1');
+      if (!raw) return;
+      const s = JSON.parse(raw);
+      if (s.tessiture?.notes?.parlee_confortable) {
+        setNotes(prev => ({ ...prev, parlee_confortable: noteNameToMidi(s.tessiture.notes.parlee_confortable) }));
+      }
+    } catch {}
+  }, []);
+
+  // Gamme candidate : E1 (28) à A4 (69) pour couvrir de la basse profonde à un baryton aigu
+  const makeRange = (min, max) => {
+    const arr = [];
+    for (let m = min; m <= max; m++) arr.push(m);
+    return arr;
+  };
+
+  const hypotheseFach = useMemo(() => {
+    if (!notes.passaggio_pressenti_bas) return null;
+    const m = notes.passaggio_pressenti_bas;
+    // Bozeman PVA Appendix 3 (approximations) :
+    // Basse profonde : primo ~ A3, Basse : ~ Bb3-B3, Baryton : ~ C4-C#4, Ténor : ~ D4-Eb4+
+    // Fiabilité Moyenne : ces fourchettes sont approximatives et se chevauchent.
+    if (m <= 56) return { fach: 'Basse profonde ou Basse', confiance: 'moyenne' };     // ≤ G#3
+    if (m <= 59) return { fach: 'Basse', confiance: 'moyenne' };                        // A3-B3
+    if (m <= 62) return { fach: 'Basse-baryton ou Baryton', confiance: 'moyenne' };     // C4-D4
+    if (m <= 64) return { fach: 'Baryton', confiance: 'moyenne' };                      // Eb4-E4
+    if (m <= 67) return { fach: 'Baryton aigu ou Ténor', confiance: 'moyenne' };        // F4-G4
+    return { fach: 'Ténor', confiance: 'faible (passaggio très haut, inhabituel — à vérifier)' };
+  }, [notes.passaggio_pressenti_bas]);
+
+  const allFilled = Object.values(notes).every(v => v !== null);
+
+  const saveAll = () => {
+    try {
+      const lsKey = 'chant.state.v1';
+      const raw = localStorage.getItem(lsKey);
+      if (!raw) return;
+      const state = JSON.parse(raw);
+      const notesNamed = {};
+      for (const [k, v] of Object.entries(notes)) {
+        notesNamed[k] = v !== null ? midiToNoteName(v).en : null;
+      }
+      // On conserve les autres champs déjà présents (aigu_limite_accessible, grave_limite_accessible)
+      state.tessiture.notes = {
+        ...state.tessiture.notes,
+        ...notesNamed,
+      };
+      state.tessiture.date_evaluation = new Date().toISOString();
+      if (hypotheseFach) {
+        state.tessiture.hypothese_fach = hypotheseFach.fach;
+        state.tessiture.fiabilite_estimation = `auto-évaluation, confiance ${hypotheseFach.confiance} — à confirmer avec enseignante`;
+      }
+      state.tessiture.changelog.push({
+        date: new Date().toISOString().slice(0, 10),
+        entry: `Leçon 6 : tessiture cartographiée. Hypothèse : ${hypotheseFach?.fach || 'non déterminée'}.`,
+      });
+      localStorage.setItem(lsKey, JSON.stringify(state));
+      setSaved(true);
+    } catch (e) {
+      console.warn('Save tessiture failed', e);
+    }
+  };
+
+  const NoteSelector = ({ label, explanation, field, min, max, hint }) => {
+    const selected = notes[field];
+    return h('div', { className: 'my-5 p-4 bg-soft/50 border border-rule rounded-sm' },
+      h('div', { className: 'mb-2' },
+        h('div', { className: 'font-medium text-[15px]' }, label),
+        h('div', { className: 'text-xs text-dim mt-1 leading-relaxed' }, explanation),
+        hint ? h('div', { className: 'text-[11px] text-dim mt-1 italic' }, hint) : null,
+      ),
+      h('div', { className: 'mt-3 grid grid-cols-6 sm:grid-cols-8 gap-1.5' },
+        makeRange(min, max).map(m => {
+          const info = midiToNoteName(m);
+          const isSelected = selected === m;
+          return h('div', { key: m, className: 'flex flex-col gap-0.5' },
+            h('button', {
+              onClick: () => audio.playMidi(m, 1.8),
+              className: 'px-1 py-1 bg-paper border border-rule hover:border-ink rounded-sm text-[10px] font-mono',
+            }, '▸'),
+            h('button', {
+              onClick: () => setNotes(prev => ({ ...prev, [field]: m })),
+              className: `px-1 py-1 text-[10px] rounded-sm border transition-colors ${isSelected ? 'bg-ink text-paper border-ink' : 'bg-paper border-rule hover:border-dim'}`,
+            }, info.en)
+          );
+        })
+      ),
+      selected !== null ? h('div', { className: 'mt-2 text-xs text-dim' },
+        'Sélectionné : ', h('span', { className: 'font-mono font-medium text-ink' }, midiToNoteName(selected).en, ' / ', midiToNoteName(selected).fr)
+      ) : null
+    );
+  };
+
+  return h('section', { className: 'mt-8' },
+    h('h2', { className: 'font-serif-display text-2xl text-ink mt-10 mb-4 tracking-tight' }, '2. Cartographie'),
+
+    notes.parlee_confortable ? h('div', { className: 'my-4 p-3 bg-accent/5 border border-accent/30 rounded-sm text-sm' },
+      '✓ Ta note parlée (leçon 5) : ',
+      h('span', { className: 'font-mono font-medium' }, midiToNoteName(notes.parlee_confortable).en),
+      '. Si elle te semble fausse aujourd\'hui, retourne à la leçon 5 et refais l\'exercice.'
+    ) : h('div', { className: 'my-4 p-3 bg-soft border border-rule rounded-sm text-sm' },
+      '⚠ Tu n\'as pas encore fait la leçon 5. Retournes-y d\'abord pour identifier ta note parlée confortable.'
+    ),
+
+    h(NoteSelector, {
+      label: 'Ton grave confortable',
+      explanation: 'Descends progressivement depuis ta note parlée. À quelle note ton son devient-il instable, soufflé, peu sonore, ou difficile à tenir ? Sélectionne la dernière note où tu es encore confortable.',
+      hint: 'Pour information : il est normal que le son devienne soufflé en descendant. Cherche la limite du confort, pas la limite absolue.',
+      field: 'grave_limite_confortable',
+      min: 28, max: 55, // E1 à G3
+    }),
+
+    h(NoteSelector, {
+      label: 'Ton passaggio pressenti',
+      explanation: 'Remonte progressivement depuis ta note parlée en chantant un « ah » ou « oh » relâché. À quelle note ressens-tu un premier changement : sensation de « basculer », tension nouvelle, timbre différent, impression que tu vas « craquer » ?',
+      hint: 'Cette note est la plus importante de l\'exercice — elle conditionne l\'hypothèse de ton type de voix.',
+      field: 'passaggio_pressenti_bas',
+      min: 50, max: 67, // D3 à G4 (fourchette large)
+    }),
+
+    h(NoteSelector, {
+      label: 'Ton aigu en poitrine (avant la bascule)',
+      explanation: 'La note la plus haute que tu peux tenir sans basculer dans un registre « plus léger/falsetto ». C\'est souvent un demi-ton ou un ton au-dessus de ton passaggio pressenti.',
+      field: 'aigu_limite_confortable_poitrine',
+      min: 52, max: 69, // E3 à A4
+    }),
+
+    h(NoteSelector, {
+      label: 'Ton aigu confortable global',
+      explanation: 'La note la plus haute que tu peux produire de façon stable, tout registre confondu (y compris après la bascule, en voix de tête/falsetto).',
+      hint: 'Ne pas pousser. Si ça force ou fait mal, arrête.',
+      field: 'aigu_limite_confortable_global',
+      min: 55, max: 72, // G3 à C5
+    }),
+
+    allFilled ? h('div', { className: 'mt-8 p-5 border border-accent/40 bg-accent/5 rounded-sm' },
+      h('h3', { className: 'font-serif-display text-xl mb-3' }, 'Résumé de ta cartographie'),
+      h('ul', { className: 'space-y-1.5 text-sm mb-4' },
+        Object.entries(notes).map(([k, v]) => {
+          const labels = {
+            parlee_confortable: 'Note parlée confortable',
+            grave_limite_confortable: 'Grave confortable',
+            passaggio_pressenti_bas: 'Passaggio pressenti',
+            aigu_limite_confortable_poitrine: 'Aigu en poitrine',
+            aigu_limite_confortable_global: 'Aigu global',
+          };
+          return h('li', { key: k, className: 'flex items-baseline justify-between' },
+            h('span', { className: 'text-ink' }, labels[k]),
+            h('span', { className: 'font-mono font-medium' }, v !== null ? midiToNoteName(v).en : '—')
+          );
+        })
+      ),
+
+      hypotheseFach ? h('div', { className: 'mt-4 pt-4 border-t border-accent/30' },
+        h('div', { className: 'text-[11px] uppercase tracking-widest text-accent mb-2 font-sans' }, 'Hypothèse de type de voix'),
+        h('p', { className: 'text-lg font-serif-display mb-2' }, hypotheseFach.fach),
+        h('p', { className: 'text-xs text-dim leading-relaxed' },
+          'Confiance : ', hypotheseFach.confiance, '. Basée sur Bozeman, ', h('em', null, 'Practical Vocal Acoustics'), ', Appendix 3 (localisations statistiques du passaggio par Fach masculin). ',
+          h('strong', null, 'À confirmer avec ton enseignante.'),
+          ' Les auto-évaluations de tessiture sont fréquemment imprécises — attends-toi à ce que cette hypothèse soit ajustée après discussion et après quelques semaines de pratique.'
+        )
+      ) : null,
+
+      !saved ? h('button', {
+        onClick: saveAll,
+        className: 'mt-4 w-full px-4 py-2.5 bg-ink text-paper rounded-sm text-sm hover:bg-dim',
+      }, 'Enregistrer ma cartographie') : h('div', { className: 'mt-4 p-3 bg-green-50 border border-green-200 rounded-sm text-sm text-green-900' },
+        '✓ Enregistré en local. Clique sur « Exporter » (en haut à droite) pour télécharger les JSON et les versionner dans ton repo.'
+      )
+    ) : h('p', { className: 'mt-6 text-sm text-dim italic' },
+      'Une fois les cinq notes sélectionnées, une hypothèse de type de voix sera calculée et tu pourras enregistrer le tout.'
+    )
+  );
+}
+
+/* ============================================================
+   LEÇONS À VENIR (placeholder pour les blocs suivants)
    ============================================================ */
 
 function LessonComingSoon({ lesson }) {
@@ -1228,6 +2081,116 @@ function ExportPanel({ state, onClose }) {
 }
 
 /* ============================================================
+   BANNIÈRE D'ACTIVATION AUDIO & PANNEAU PARAMÈTRES
+   ============================================================ */
+
+function AudioActivationBanner({ onActivate }) {
+  const audio = useContext(AudioCtx);
+  const [showDetails, setShowDetails] = useState(false);
+  const [testPlayed, setTestPlayed] = useState(false);
+
+  const handleTestBeep = () => {
+    audio.ensureContext();
+    audio.playTestBeep();
+    setTestPlayed(true);
+  };
+
+  return h('div', { className: 'bg-accent/10 border-b border-accent/30 px-4 py-3' },
+    h('div', { className: 'max-w-4xl mx-auto' },
+      h('div', { className: 'flex items-start justify-between gap-3 flex-wrap' },
+        h('div', { className: 'flex-1 min-w-[220px]' },
+          h('p', { className: 'text-xs text-ink font-medium mb-1' },
+            audio.isIOS ? 'Safari iOS : active l\'audio pour entendre les notes' : 'Active l\'audio pour entendre les notes'
+          ),
+          h('p', { className: 'text-[11px] text-dim leading-relaxed' },
+            audio.isIOS
+              ? 'Le navigateur demande une interaction tactile avant toute lecture sonore. Touche "Tester" : si tu n\'entends rien, vérifie le mode silencieux de ton iPhone (switch côté gauche).'
+              : 'Clique sur « Activer » puis teste avec le bip.'
+          )
+        ),
+        h('div', { className: 'flex gap-2 flex-shrink-0' },
+          h('button', {
+            onClick: handleTestBeep,
+            className: 'px-3 py-1.5 bg-paper border border-accent text-accent rounded-sm text-xs hover:bg-soft transition-colors',
+          }, testPlayed ? '▸ Rejouer' : '▸ Tester'),
+          h('button', {
+            onClick: onActivate,
+            className: 'px-3 py-1.5 bg-accent text-paper rounded-sm text-xs hover:bg-accent/90 transition-colors',
+          }, 'Activer')
+        ),
+      ),
+      audio.isIOS ? h('div', { className: 'mt-2 pt-2 border-t border-accent/20' },
+        h('button', {
+          onClick: () => setShowDetails(!showDetails),
+          className: 'text-[11px] text-accent hover:underline',
+        }, showDetails ? '▾ Masquer les options iOS' : '▸ Options iOS (forcer l\'audio en mode silencieux)'),
+        showDetails ? h('div', { className: 'mt-2 text-[11px] text-ink leading-relaxed space-y-2' },
+          h('p', null,
+            'Par défaut, iOS coupe les sons générés par l\'app si le switch silencieux physique est activé (petit point orange visible à côté du switch).'
+          ),
+          h('label', { className: 'flex items-start gap-2 cursor-pointer' },
+            h('input', {
+              type: 'checkbox',
+              checked: audio.forceAudioInSilent,
+              onChange: e => audio.setForceAudioInSilent(e.target.checked),
+              className: 'mt-0.5',
+            }),
+            h('span', null,
+              h('span', { className: 'font-medium' }, 'Forcer l\'audio même en mode silencieux'),
+              h('span', { className: 'block text-dim mt-0.5' },
+                'Attention : si tu actives ceci, l\'app jouera des sons même quand ton iPhone est en silencieux. Pratique pour travailler la voix sans changer de réglage, gênant si tu ouvres l\'app par mégarde en réunion. Désactivable à tout moment.'
+              )
+            )
+          )
+        ) : null
+      ) : null
+    )
+  );
+}
+
+function SettingsPanel({ onClose }) {
+  const audio = useContext(AudioCtx);
+  return h('div', { className: 'fixed inset-0 bg-ink/40 z-50 flex items-center justify-center p-4' },
+    h('div', { className: 'bg-paper rounded-sm max-w-md w-full p-6 shadow-xl' },
+      h('div', { className: 'flex items-center justify-between mb-4' },
+        h('h3', { className: 'font-serif-display text-xl' }, 'Paramètres'),
+        h('button', { onClick: onClose, className: 'text-dim hover:text-ink' }, '✕')
+      ),
+      h('div', { className: 'space-y-6' },
+        // Bloc audio
+        h('section', null,
+          h('h4', { className: 'text-[11px] uppercase tracking-widest text-accent mb-3 font-sans' }, 'Audio'),
+          h('div', { className: 'space-y-3' },
+            h('div', { className: 'flex items-center justify-between' },
+              h('span', { className: 'text-sm' }, 'Tester le son'),
+              h('button', {
+                onClick: () => { audio.ensureContext(); audio.playTestBeep(); },
+                className: 'px-3 py-1.5 bg-paper border border-rule hover:border-ink rounded-sm text-xs',
+              }, '▸ Bip de test')
+            ),
+            audio.isIOS ? h('label', { className: 'flex items-start gap-3 cursor-pointer' },
+              h('input', {
+                type: 'checkbox',
+                checked: audio.forceAudioInSilent,
+                onChange: e => audio.setForceAudioInSilent(e.target.checked),
+                className: 'mt-0.5 flex-shrink-0',
+              }),
+              h('span', { className: 'text-sm' },
+                h('span', { className: 'font-medium' }, 'Forcer l\'audio en mode silencieux (iOS)'),
+                h('span', { className: 'block text-xs text-dim mt-0.5 leading-relaxed' },
+                  'Par défaut iOS coupe les sons générés par l\'app quand le switch silence est activé. Cochez pour contourner — utile pour pratiquer sans toucher au switch, gênant si vous ouvrez l\'app par mégarde en public.'
+                )
+              )
+            ) : h('p', { className: 'text-xs text-dim' }, 'Option iOS non applicable sur ce navigateur.'),
+          )
+        ),
+      ),
+      h('button', { onClick: onClose, className: 'mt-6 w-full px-4 py-2 bg-ink text-paper rounded-sm text-sm hover:bg-dim' }, 'Fermer')
+    )
+  );
+}
+
+/* ============================================================
    APP ROOT
    ============================================================ */
 
@@ -1236,6 +2199,7 @@ function App() {
   const [state, setState] = useState(null); // null = en cours de chargement
   const [view, setView] = useState({ type: 'overview' }); // overview | lesson | journal
   const [showExport, setShowExport] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [needsAudioActivation, setNeedsAudioActivation] = useState(true);
 
   // Chargement initial : merge localStorage + JSON du repo
@@ -1297,20 +2261,20 @@ function App() {
           onClick: () => setShowExport(true),
           className: 'px-3 py-1.5 text-xs hover:bg-soft rounded-sm transition-colors',
           title: 'Exporter les données pour sauvegarde dans le repo',
-        }, 'Exporter')
+        }, 'Exporter'),
+        h('button', {
+          onClick: () => setShowSettings(true),
+          className: 'px-2.5 py-1.5 text-xs hover:bg-soft rounded-sm transition-colors',
+          title: 'Paramètres (audio, iOS)',
+          'aria-label': 'Paramètres',
+        }, '⚙')
       )
     ),
 
-    // Bannière activation audio (iOS)
-    needsAudioActivation ? h('div', { className: 'bg-accent/10 border-b border-accent/20 px-4 py-3 flex items-center justify-between gap-4 flex-wrap' },
-      h('p', { className: 'text-xs text-ink flex-1 min-w-[200px]' },
-        'Sur iPhone / iPad, Safari demande une interaction avant de jouer du son. Active l\'audio pour entendre les notes des leçons.'
-      ),
-      h('button', {
-        onClick: activateAudio,
-        className: 'px-3 py-1.5 bg-accent text-paper rounded-sm text-xs hover:bg-accent/90',
-      }, 'Activer l\'audio')
-    ) : null,
+    // Bannière activation audio (iOS + diagnostic)
+    needsAudioActivation ? h(AudioActivationBanner, {
+      onActivate: activateAudio,
+    }) : null,
 
     // Contenu
     h('main', { className: 'px-4 sm:px-6' },
@@ -1333,6 +2297,7 @@ function App() {
       onClose: () => setView({ type: 'overview' }),
     }) : null,
     showExport ? h(ExportPanel, { state, onClose: () => setShowExport(false) }) : null,
+    showSettings ? h(SettingsPanel, { onClose: () => setShowSettings(false) }) : null,
 
     // Footer
     h('footer', { className: 'mt-20 py-8 border-t border-rule text-center text-xs text-dim no-print' },
