@@ -130,14 +130,23 @@ const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
 const SILENT_WAV = 'data:audio/wav;base64,UklGRi4AAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoAAACAgICAgICAgICAAAA=';
 
 const LS_FORCE_AUDIO_KEY = 'chant.forceAudioInSilentMode.v1';
+const LS_TIMBRE_KEY = 'chant.timbre.v1';
 
 function AudioProvider({ children }) {
   const [activated, setActivated] = useState(false);
   const [forceAudioInSilent, setForceAudioInSilent] = useState(() => {
     try { return localStorage.getItem(LS_FORCE_AUDIO_KEY) === 'true'; } catch { return false; }
   });
+  const [timbre, setTimbreState] = useState(() => {
+    try { return localStorage.getItem(LS_TIMBRE_KEY) || 'sine'; } catch { return 'sine'; }
+  });
   const audioCtxRef = useRef(null);
   const silentAudioRef = useRef(null);
+
+  const setTimbre = useCallback((t) => {
+    setTimbreState(t);
+    try { localStorage.setItem(LS_TIMBRE_KEY, t); } catch {}
+  }, []);
 
   useEffect(() => {
     try { localStorage.setItem(LS_FORCE_AUDIO_KEY, String(forceAudioInSilent)); } catch {}
@@ -186,26 +195,74 @@ function AudioProvider({ children }) {
     return audioCtxRef.current;
   }, [forceAudioInSilent, ensureSilentAudio]);
 
-  const playFrequency = useCallback((freq, duration = 1.5) => {
-    const ctx = ensureContext();
+  // Synthèse sinus pur (par défaut)
+  const playSine = useCallback((ctx, freq, duration) => {
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     osc.type = 'sine';
     osc.frequency.setValueAtTime(freq, ctx.currentTime);
 
-    // Enveloppe ADSR douce pour éviter les clics
     const now = ctx.currentTime;
     gain.gain.setValueAtTime(0.0001, now);
-    gain.gain.exponentialRampToValueAtTime(0.25, now + 0.02); // attack
-    gain.gain.exponentialRampToValueAtTime(0.2, now + 0.07);  // decay -> sustain
+    gain.gain.exponentialRampToValueAtTime(0.25, now + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.2, now + 0.07);
     gain.gain.setValueAtTime(0.2, now + duration - 0.2);
-    gain.gain.exponentialRampToValueAtTime(0.0001, now + duration); // release
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
 
     osc.connect(gain);
     gain.connect(ctx.destination);
     osc.start(now);
     osc.stop(now + duration + 0.05);
-  }, [ensureContext]);
+  }, []);
+
+  // Synthèse additive type piano : empilement de 4 harmoniques avec amplitudes décroissantes
+  // et enveloppe piano (attaque courte, décroissance longue).
+  // Fiabilité : son sensiblement plus riche qu'un sinus, perception de hauteur plus stable.
+  // Limite honnête : ce n'est pas un vrai piano, c'est un succédané synthétique évocateur.
+  const playPiano = useCallback((ctx, freq, duration) => {
+    const now = ctx.currentTime;
+    const masterGain = ctx.createGain();
+    masterGain.connect(ctx.destination);
+
+    // Enveloppe piano : attaque rapide, décroissance exponentielle longue
+    masterGain.gain.setValueAtTime(0.0001, now);
+    masterGain.gain.exponentialRampToValueAtTime(0.35, now + 0.008); // attaque très courte
+    masterGain.gain.exponentialRampToValueAtTime(0.15, now + 0.4);   // décroissance initiale
+    masterGain.gain.exponentialRampToValueAtTime(0.05, now + duration * 0.7);
+    masterGain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+
+    // Harmoniques : fondamentale + 3 partiels supérieurs, amplitudes décroissantes
+    // Ratios légèrement inharmoniques (piano réel : cordes non parfaitement harmoniques)
+    const partials = [
+      { mult: 1.0,    amp: 1.0,  detune: 0 },      // fondamentale
+      { mult: 2.001,  amp: 0.5,  detune: 0 },      // octave
+      { mult: 3.004,  amp: 0.25, detune: 0 },      // quinte au-dessus
+      { mult: 4.01,   amp: 0.12, detune: 0 },      // double octave
+    ];
+
+    const oscs = [];
+    for (const p of partials) {
+      const osc = ctx.createOscillator();
+      const partialGain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq * p.mult, now);
+      partialGain.gain.value = p.amp;
+      osc.connect(partialGain);
+      partialGain.connect(masterGain);
+      osc.start(now);
+      osc.stop(now + duration + 0.05);
+      oscs.push(osc);
+    }
+  }, []);
+
+  const playFrequency = useCallback((freq, duration = 1.5) => {
+    const ctx = ensureContext();
+    if (timbre === 'piano') {
+      playPiano(ctx, freq, duration);
+    } else {
+      playSine(ctx, freq, duration);
+    }
+  }, [ensureContext, timbre, playSine, playPiano]);
 
   const playMidi = useCallback((midi, duration) => {
     playFrequency(midiToFreq(midi), duration);
@@ -227,6 +284,7 @@ function AudioProvider({ children }) {
       activated, ensureContext, playFrequency, playMidi, playSequence, playTestBeep,
       isIOS: IS_IOS,
       forceAudioInSilent, setForceAudioInSilent,
+      timbre, setTimbre,
     },
   }, children);
 }
@@ -1035,13 +1093,14 @@ function Lesson3({ onComplete }) {
           state: quiz2, setState: setQuiz2,
         }),
         h(QuizBlock, {
-          question: 'Laquelle de ces deux paires est séparée d\'un ton (entier) ?',
-          audioOptions: [
-            { id: 'a', midi: 60, label: 'Paire A (première note : C4)' },
-            { id: 'b', midi: 60, label: 'Paire B (première note : C4)' },
+          question: 'Entre G4 et A4 (Sol4 et La4), il y a :',
+          options: [
+            { id: 'a', label: 'Un demi-ton' },
+            { id: 'b', label: 'Un ton' },
+            { id: 'c', label: 'Deux tons' },
           ],
           correctId: 'b',
-          explanation: 'La bonne réponse nécessite de comparer deux paires entières, pas juste la première note. Pour un vrai entraînement, reviens à la section 4 et utilise les boutons "Paire A/B/C/D". Cette question est pédagogique : elle te rappelle qu\'un intervalle, c\'est toujours une relation entre deux notes.',
+          explanation: 'Un ton. Entre G et A, il y a une touche noire (G# / Ab), donc la distance est : G → G# (1 demi-ton) → A (1 demi-ton de plus) = 2 demi-tons = 1 ton. Les seules paires de notes blanches adjacentes séparées seulement d\'un demi-ton sont E-F et B-C.',
           state: quiz3, setState: setQuiz3,
         })
       )
@@ -1245,6 +1304,32 @@ function Lesson5({ onComplete }) {
       h('p', { className: pCls + ' text-dim italic font-serif-body' },
         'On quitte le clavier pour revenir à ta voix. Cette leçon a un objectif simple : localiser la note sur laquelle tu parles confortablement. Ce sera la première donnée personnelle qu\'on enregistre — l\'ancre autour de laquelle tout le reste du parcours va se calibrer.'
       ),
+    ),
+
+    // ENCART : vocabulaire d'arrivée anticipée
+    h('section', { className: sectionCls },
+      h('div', { className: 'p-5 border border-accent/30 bg-accent/5 rounded-sm' },
+        h('div', { className: 'text-[11px] uppercase tracking-widest text-accent mb-3 font-sans' }, 'Vocabulaire d\'arrivée anticipée'),
+        h('p', { className: 'text-sm leading-relaxed mb-4 text-ink' },
+          'Les leçons 5 et 6 utilisent quelques termes qu\'on n\'a pas encore traités en profondeur. Voici leurs définitions minimales — juste de quoi faire les exercices. Chacun de ces termes sera ',
+          h('strong', null, 'approfondi plus tard'),
+          ' : le Bloc 2 traitera les aspects anatomiques (registres, voix de poitrine/tête, falsetto), et le Bloc 4 traitera l\'acoustique du passaggio.'
+        ),
+        h('dl', { className: 'space-y-3 text-sm' },
+          [
+            { terme: 'Registre', def: 'Manière dont tes cordes vocales vibrent à un moment donné. Plusieurs registres existent (poitrine, tête, falsetto) avec des configurations musculaires distinctes. Le passage de l\'un à l\'autre produit une "bascule" audible et sensible.' },
+            { terme: 'Voix de poitrine', def: 'Le registre bas, celui dans lequel tu parles. Les vibrations sont perçues comme venant du thorax. Son plus "plein", "corporel". Ne désigne pas un endroit anatomique précis — c\'est une perception, pas un organe.' },
+            { terme: 'Voix de tête / falsetto', def: 'Le registre haut, celui dans lequel tu bascules quand tu imites une voix aiguë (comme dans un "youpi" joyeux de sommet de montagne). Les vibrations sont perçues comme venant du haut du crâne. Son plus "léger", parfois plus "soufflé". En pédagogie classique, on distingue parfois voix de tête (plus consistante) et falsetto (plus légère), mais on utilisera ici les deux termes de façon proche.' },
+            { terme: 'Passaggio', def: 'Mot italien signifiant "passage". Désigne la zone — pas un point unique — où la voix bascule du registre de poitrine vers le registre de tête. Chez les voix masculines, le passaggio se situe statistiquement autour de C4-G4 selon le type de voix. Son mécanisme acoustique sera étudié au Bloc 4.' },
+            { terme: 'Tessiture', def: 'Étendue totale des notes que ta voix peut produire de façon stable et confortable, de ta note la plus basse à ta note la plus haute. À ne pas confondre avec l\'étendue absolue (notes extrêmes atteignables avec effort), qui est plus large.' },
+            { terme: 'Timbre', def: 'Qualité d\'un son qui le distingue d\'un autre à hauteur et volume égaux. C\'est ce qui fait qu\'un "la" de piano, de violon et de voix humaine ne se confondent pas, même à la même fréquence. Le timbre change aussi dans ta propre voix selon les voyelles et les registres.' },
+            { terme: 'Type de voix (Fach)', def: 'Classification grossière des voix selon leur tessiture et leur couleur : basse, baryton, ténor chez les hommes ; alto, mezzo, soprano chez les femmes. "Fach" est le terme allemand, repris dans la littérature internationale. Les catégories se chevauchent — les frontières sont imprécises.' },
+          ].map(item => h('div', { key: item.terme },
+            h('dt', { className: 'font-medium text-ink' }, item.terme),
+            h('dd', { className: 'text-dim text-[13px] leading-relaxed mt-0.5' }, item.def)
+          ))
+        )
+      )
     ),
 
     h('section', { className: sectionCls },
@@ -1958,6 +2043,121 @@ function LessonView({ lessonId, progression, setProgression, onBack }) {
    JOURNAL
    ============================================================ */
 
+/* ============================================================
+   GLOSSAIRE
+   ============================================================ */
+
+// Données du glossaire. Hardcodées : le glossaire évolue avec les leçons,
+// pas avec l'usage utilisateur, donc pas de raison de le stocker en JSON séparé.
+// Chaque entrée : terme, définition, première leçon d'introduction,
+// auteurs qui en parlent, catégorie (musique / anatomie / acoustique / pédagogie)
+const GLOSSARY = [
+  // Musique
+  { terme: 'Fréquence', categorie: 'musique', definition: 'Nombre de vibrations par seconde, mesuré en Hertz (Hz). 1 Hz = 1 oscillation par seconde. Grandeur physique objective.', introLecon: 'bloc1-s1-l1', sources: [{ auteur: 'McCoy', reference: 'Ch. 2, p. 17-19' }] },
+  { terme: 'Hauteur', categorie: 'musique', definition: 'Perception subjective de la fréquence par le cerveau. Liée à la fréquence mais pas identique — peut être influencée par le timbre, l\'intensité, le contexte.', introLecon: 'bloc1-s1-l1', sources: [{ auteur: 'McCoy', reference: 'Ch. 2, p. 17-18' }] },
+  { terme: 'Hertz (Hz)', categorie: 'musique', definition: 'Unité de mesure de la fréquence. 1 Hz = 1 oscillation par seconde. Le La du diapason vibre à 440 Hz (A4 = 440 Hz, standard international).', introLecon: 'bloc1-s1-l1', sources: [{ auteur: 'McCoy', reference: 'Ch. 2' }] },
+  { terme: 'Note', categorie: 'musique', definition: 'Son dont la fréquence a reçu un nom dans un système musical. Par convention internationale, A4 = 440 Hz.', introLecon: 'bloc1-s1-l1' },
+  { terme: 'Octave', categorie: 'musique', definition: 'Intervalle entre deux notes dont les fréquences sont dans un rapport 2:1. La note supérieure est perçue comme « la même » note, plus aiguë. Exemple : C3 (131 Hz) → C4 (262 Hz) → C5 (524 Hz).', introLecon: 'bloc1-s1-l2', sources: [{ auteur: 'McCoy', reference: 'Ch. 2' }] },
+  { terme: 'Demi-ton', categorie: 'musique', definition: 'Plus petite distance entre deux notes dans le système musical occidental. Correspond au passage d\'une touche à la touche adjacente sur le clavier. Une octave contient 12 demi-tons.', introLecon: 'bloc1-s1-l3' },
+  { terme: 'Ton', categorie: 'musique', definition: 'Intervalle équivalent à deux demi-tons. Exemple : C4 → D4.', introLecon: 'bloc1-s1-l3' },
+  { terme: 'Intervalle', categorie: 'musique', definition: 'Distance entre deux notes, mesurable en demi-tons ou par un nom musical (octave, quinte, tierce, etc.).', introLecon: 'bloc1-s1-l4' },
+  { terme: 'Quinte juste', categorie: 'musique', definition: 'Intervalle de 7 demi-tons, ratio de fréquence 3:2. Exemple : C4 → G4. Considéré comme une consonance fondamentale.', introLecon: 'bloc1-s1-l4' },
+  { terme: 'Quarte juste', categorie: 'musique', definition: 'Intervalle de 5 demi-tons, ratio 4:3. Exemple : C4 → F4.', introLecon: 'bloc1-s1-l4' },
+  { terme: 'Tierce majeure / mineure', categorie: 'musique', definition: 'Tierce majeure : 4 demi-tons (C4 → E4). Tierce mineure : 3 demi-tons (C4 → Eb4). Le type de tierce détermine le caractère majeur ou mineur d\'un accord ou d\'une gamme.', introLecon: 'bloc1-s1-l4' },
+  { terme: 'Gamme majeure', categorie: 'musique', definition: 'Séquence de 7 notes dans une octave suivant le pattern Ton-Ton-Demi-ton-Ton-Ton-Ton-Demi-ton. Gamme la plus répandue en musique occidentale tonale.', introLecon: 'bloc1-s1-l4' },
+
+  // Physique / acoustique
+  { terme: 'Fréquence fondamentale (F0)', categorie: 'acoustique', definition: 'Fréquence de vibration des cordes vocales à un instant donné. En voix parlée, F0 change constamment autour d\'une valeur moyenne (la « note parlée confortable »).', introLecon: 'bloc1-s1-l5', sources: [{ auteur: 'McCoy', reference: 'Ch. 2' }] },
+
+  // Pédagogie vocale — termes de base (vocabulaire d'arrivée anticipée)
+  { terme: 'Registre', categorie: 'pedagogie', definition: 'Manière dont les cordes vocales vibrent à un moment donné. Plusieurs registres coexistent (poitrine, tête, falsetto) avec des configurations musculaires distinctes. Le passage de l\'un à l\'autre produit une bascule audible et sensible. Traité en profondeur au Bloc 2.', introLecon: 'bloc1-s1-l5', sources: [{ auteur: 'McCoy', reference: 'Ch. 6' }, { auteur: 'Bozeman', reference: 'PVA, Ch. 1' }], noteApprofondissement: 'À approfondir au Bloc 2 (anatomie) et Bloc 4 (acoustique).' },
+  { terme: 'Voix de poitrine', categorie: 'pedagogie', definition: 'Registre bas, utilisé dans la voix parlée. Vibrations perçues comme venant du thorax. Son plus "plein", "corporel". Désigne une perception, pas un organe anatomique précis.', introLecon: 'bloc1-s1-l5', sources: [{ auteur: 'Henny', reference: 'ch. "Where Registers Occur"' }], noteApprofondissement: 'Corrélat acoustique : open timbre. Corrélat musculaire : domination du TA (thyroaryténoïdien). À approfondir au Bloc 2.' },
+  { terme: 'Voix de tête', categorie: 'pedagogie', definition: 'Registre haut. Vibrations perçues comme venant du haut du crâne. Son plus léger qu\'en voix de poitrine. En pédagogie classique, parfois distinguée du falsetto (voix de tête = plus consistante, falsetto = plus légère et soufflée), mais la frontière est floue.', introLecon: 'bloc1-s1-l5', noteApprofondissement: 'Corrélat musculaire : domination du CT (crico-thyroïdien). À approfondir au Bloc 2.' },
+  { terme: 'Falsetto', categorie: 'pedagogie', definition: 'Registre très léger au-dessus du passaggio, souvent perçu comme soufflé ou "faux". Vient de l\'italien pour "faux". Chez les hommes, c\'est le registre accessible quand on imite une voix féminine.', introLecon: 'bloc1-s1-l5', sources: [{ auteur: 'Henny', reference: 'ch. "Where Registers Occur"' }] },
+  { terme: 'Passaggio', categorie: 'pedagogie', definition: 'Mot italien signifiant "passage". Désigne la zone — pas un point unique — où la voix bascule du registre de poitrine vers le registre de tête. Chez les voix masculines, statistiquement autour de C4-G4 selon le type de voix.', introLecon: 'bloc1-s1-l5', sources: [{ auteur: 'Bozeman', reference: 'PVA, Ch. 7 + glossaire' }], noteApprofondissement: 'Traitement acoustique complet au Bloc 4 (F1/H2 crossing, voce aperta/chiusa).' },
+  { terme: 'Primo passaggio', categorie: 'pedagogie', definition: 'Entrée basse de la zone de passaggio. Chez un baryton, typiquement autour de C4. À approfondir au Bloc 4.', introLecon: 'bloc1-s1-l6', sources: [{ auteur: 'Bozeman', reference: 'PVA, glossaire + Appendix 3' }] },
+  { terme: 'Secondo passaggio', categorie: 'pedagogie', definition: 'Sortie haute de la zone de passaggio, entrée dans le registre aigu. Chez un baryton, typiquement autour de E4-F4. Chez un ténor, F#4-G4.', introLecon: 'bloc1-s1-l6', sources: [{ auteur: 'Bozeman', reference: 'PVA, glossaire + Appendix 3' }] },
+  { terme: 'Zona di passaggio', categorie: 'pedagogie', definition: 'Zone de transition entre primo et secondo passaggio. Environ une quarte ou une quinte chez les voix masculines. C\'est dans cette zone que se fait la bascule progressive entre registres.', introLecon: 'bloc1-s1-l6', sources: [{ auteur: 'Bozeman', reference: 'PVA, glossaire' }] },
+  { terme: 'Tessiture', categorie: 'pedagogie', definition: 'Étendue totale des notes qu\'une voix peut produire de façon stable et confortable, de la note la plus basse à la note la plus haute. À distinguer de l\'étendue absolue (notes extrêmes atteignables avec effort), qui est plus large.', introLecon: 'bloc1-s1-l5' },
+  { terme: 'Timbre', categorie: 'pedagogie', definition: 'Qualité d\'un son qui le distingue d\'un autre à hauteur et volume égaux. Un "la" de piano, de violon et de voix humaine ne se confondent pas même à la même fréquence. Le timbre change dans une même voix selon les voyelles et les registres.', introLecon: 'bloc1-s1-l5' },
+  { terme: 'Type de voix (Fach)', categorie: 'pedagogie', definition: 'Classification des voix selon leur tessiture et leur couleur. Voix masculines : basse profonde, basse, basse-baryton, baryton, baryton aigu, ténor. "Fach" est le terme allemand, repris dans la littérature internationale. Les catégories se chevauchent.', introLecon: 'bloc1-s1-l6', sources: [{ auteur: 'Bozeman', reference: 'PVA, Appendix 3' }] },
+];
+
+function GlossaryView({ onClose, onNavigateToLesson }) {
+  const [searchQuery, setSearchQuery] = useState('');
+  const [activeFilter, setActiveFilter] = useState('tous');
+
+  const categories = [
+    { id: 'tous', label: 'Tous' },
+    { id: 'musique', label: 'Musique' },
+    { id: 'acoustique', label: 'Acoustique' },
+    { id: 'pedagogie', label: 'Pédagogie vocale' },
+  ];
+
+  const filtered = useMemo(() => {
+    const q = searchQuery.toLowerCase().trim();
+    return GLOSSARY.filter(g => {
+      if (activeFilter !== 'tous' && g.categorie !== activeFilter) return false;
+      if (q && !g.terme.toLowerCase().includes(q) && !g.definition.toLowerCase().includes(q)) return false;
+      return true;
+    }).sort((a, b) => a.terme.localeCompare(b.terme, 'fr'));
+  }, [searchQuery, activeFilter]);
+
+  return h('div', { className: 'fixed inset-0 bg-paper z-50 overflow-y-auto' },
+    h('div', { className: 'max-w-3xl mx-auto py-8 px-4 sm:px-6' },
+      h('div', { className: 'flex items-center justify-between mb-6' },
+        h('h2', { className: 'font-serif-display text-3xl' }, 'Glossaire'),
+        h('button', { onClick: onClose, className: 'text-sm text-dim hover:text-ink' }, '✕ Fermer')
+      ),
+
+      h('p', { className: 'text-sm text-dim mb-6 leading-relaxed' },
+        'Termes introduits dans le parcours. Chaque entrée indique la leçon où le terme est introduit et les auteurs du corpus qui en parlent. Certains termes (marqués "à approfondir") reçoivent ici une définition minimale avant un traitement plus complet dans un bloc ultérieur.'
+      ),
+
+      h('div', { className: 'mb-6 space-y-3' },
+        h('input', {
+          type: 'search',
+          placeholder: 'Rechercher un terme…',
+          value: searchQuery,
+          onChange: e => setSearchQuery(e.target.value),
+          className: 'w-full px-3 py-2 border border-rule rounded-sm text-sm bg-paper',
+        }),
+        h('div', { className: 'flex gap-1 flex-wrap' },
+          categories.map(c => h('button', {
+            key: c.id,
+            onClick: () => setActiveFilter(c.id),
+            className: `px-3 py-1 text-xs rounded-sm border transition-colors ${activeFilter === c.id ? 'bg-ink text-paper border-ink' : 'bg-paper border-rule hover:border-dim'}`,
+          }, c.label))
+        )
+      ),
+
+      filtered.length === 0 ? h('p', { className: 'text-center text-dim italic py-12 text-sm' }, 'Aucun terme ne correspond.') :
+        h('div', { className: 'space-y-5' },
+          filtered.map(g => h('article', { key: g.terme, className: 'pb-5 border-b border-rule last:border-b-0' },
+            h('div', { className: 'flex items-baseline justify-between gap-3 mb-2 flex-wrap' },
+              h('h3', { className: 'font-serif-display text-lg text-ink' }, g.terme),
+              h('span', { className: 'text-[10px] uppercase tracking-widest text-accent font-sans' }, g.categorie)
+            ),
+            h('p', { className: 'text-sm leading-relaxed mb-2' }, g.definition),
+            g.noteApprofondissement ? h('p', { className: 'text-xs text-dim italic leading-relaxed mb-2' },
+              '→ ', g.noteApprofondissement
+            ) : null,
+            h('div', { className: 'flex items-center gap-4 flex-wrap text-[11px] text-dim mt-2' },
+              g.introLecon ? h('button', {
+                onClick: () => { onNavigateToLesson(g.introLecon); onClose(); },
+                className: 'text-accent hover:underline',
+              }, 'Introduit en ', (LESSONS[g.introLecon]?.numero ? 'leçon ' + LESSONS[g.introLecon].numero : g.introLecon)) : null,
+              g.sources && g.sources.length > 0 ? h('span', null,
+                'Sources : ', g.sources.map(s => `${s.auteur} (${s.reference})`).join(' · ')
+              ) : null
+            )
+          ))
+        )
+    )
+  );
+}
+
+
 function JournalView({ journal, setJournal, onClose }) {
   const [showForm, setShowForm] = useState(false);
   const [draft, setDraft] = useState({
@@ -2157,6 +2357,41 @@ function SettingsPanel({ onClose }) {
         h('button', { onClick: onClose, className: 'text-dim hover:text-ink' }, '✕')
       ),
       h('div', { className: 'space-y-6' },
+        // Bloc timbre
+        h('section', null,
+          h('h4', { className: 'text-[11px] uppercase tracking-widest text-accent mb-3 font-sans' }, 'Timbre des notes'),
+          h('div', { className: 'space-y-2' },
+            [
+              { id: 'sine', label: 'Sinus pur', desc: 'Son épuré, sans harmoniques. Non ambigu pour l\'apprentissage, mais parfois difficile à "saisir" comme hauteur.' },
+              { id: 'piano', label: 'Piano (synthèse)', desc: 'Son harmoniquement plus riche, attaque piano. Hauteur plus facile à percevoir. Reste synthétique, pas un vrai enregistrement.' },
+            ].map(t => h('label', {
+              key: t.id,
+              className: `flex items-start gap-3 p-3 border rounded-sm cursor-pointer transition-colors ${audio.timbre === t.id ? 'border-ink bg-soft' : 'border-rule hover:border-dim'}`,
+            },
+              h('input', {
+                type: 'radio',
+                name: 'timbre',
+                value: t.id,
+                checked: audio.timbre === t.id,
+                onChange: () => audio.setTimbre(t.id),
+                className: 'mt-0.5 flex-shrink-0',
+              }),
+              h('span', null,
+                h('span', { className: 'font-medium text-sm' }, t.label),
+                h('span', { className: 'block text-xs text-dim mt-0.5 leading-relaxed' }, t.desc)
+              )
+            ))
+          ),
+          // Bouton test pour comparer
+          h('div', { className: 'mt-3 flex items-center gap-2' },
+            h('span', { className: 'text-xs text-dim' }, 'Tester avec la note A4 :'),
+            h('button', {
+              onClick: () => { audio.ensureContext(); audio.playMidi(69, 1.2); },
+              className: 'px-3 py-1 text-xs bg-paper border border-rule hover:border-ink rounded-sm',
+            }, '▸ Jouer')
+          )
+        ),
+
         // Bloc audio
         h('section', null,
           h('h4', { className: 'text-[11px] uppercase tracking-widest text-accent mb-3 font-sans' }, 'Audio'),
@@ -2200,6 +2435,7 @@ function App() {
   const [view, setView] = useState({ type: 'overview' }); // overview | lesson | journal
   const [showExport, setShowExport] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showGlossary, setShowGlossary] = useState(false);
   const [needsAudioActivation, setNeedsAudioActivation] = useState(true);
 
   // Chargement initial : merge localStorage + JSON du repo
@@ -2253,6 +2489,11 @@ function App() {
       }, 'Chant'),
       h('div', { className: 'flex items-center gap-1' },
         h('button', {
+          onClick: () => setShowGlossary(true),
+          className: 'px-3 py-1.5 text-xs hover:bg-soft rounded-sm transition-colors',
+          title: 'Glossaire des termes',
+        }, 'Glossaire'),
+        h('button', {
           onClick: () => setView({ type: 'journal' }),
           className: 'px-3 py-1.5 text-xs hover:bg-soft rounded-sm transition-colors',
           title: 'Journal de pratique',
@@ -2265,7 +2506,7 @@ function App() {
         h('button', {
           onClick: () => setShowSettings(true),
           className: 'px-2.5 py-1.5 text-xs hover:bg-soft rounded-sm transition-colors',
-          title: 'Paramètres (audio, iOS)',
+          title: 'Paramètres (audio, iOS, timbre)',
           'aria-label': 'Paramètres',
         }, '⚙')
       )
@@ -2298,6 +2539,10 @@ function App() {
     }) : null,
     showExport ? h(ExportPanel, { state, onClose: () => setShowExport(false) }) : null,
     showSettings ? h(SettingsPanel, { onClose: () => setShowSettings(false) }) : null,
+    showGlossary ? h(GlossaryView, {
+      onClose: () => setShowGlossary(false),
+      onNavigateToLesson: (id) => setView({ type: 'lesson', id }),
+    }) : null,
 
     // Footer
     h('footer', { className: 'mt-20 py-8 border-t border-rule text-center text-xs text-dim no-print' },
