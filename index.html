@@ -60,7 +60,9 @@
 {
   "imports": {
     "react": "https://esm.sh/react@18.3.1",
-    "react-dom/client": "https://esm.sh/react-dom@18.3.1/client"
+    "react-dom/client": "https://esm.sh/react-dom@18.3.1/client",
+    "tone": "https://esm.sh/tone@14.8.49",
+    "@tonejs/piano": "https://esm.sh/@tonejs/piano@0.2.1?external=tone"
   }
 }
 </script>
@@ -146,7 +148,11 @@ function AudioProvider({ children }) {
   const setTimbre = useCallback((t) => {
     setTimbreState(t);
     try { localStorage.setItem(LS_TIMBRE_KEY, t); } catch {}
-  }, []);
+    // Charger Tone.js Piano si demandé et pas déjà chargé
+    if (t === 'piano-samples' && pianoStatus === 'idle') {
+      loadTonePiano();
+    }
+  }, [pianoStatus, loadTonePiano]);
 
   useEffect(() => {
     try { localStorage.setItem(LS_FORCE_AUDIO_KEY, String(forceAudioInSilent)); } catch {}
@@ -194,6 +200,32 @@ function AudioProvider({ children }) {
     setActivated(true);
     return audioCtxRef.current;
   }, [forceAudioInSilent, ensureSilentAudio]);
+
+  // Chargement différé de Tone.js Piano (uniquement quand l'utilisateur choisit "piano-samples")
+  const pianoRef = useRef(null);
+  const [pianoStatus, setPianoStatus] = useState('idle'); // 'idle' | 'loading' | 'ready' | 'error'
+
+  const loadTonePiano = useCallback(async () => {
+    if (pianoRef.current || pianoStatus === 'loading') return;
+    setPianoStatus('loading');
+    try {
+      const [toneMod, pianoMod] = await Promise.all([
+        import('tone'),
+        import('@tonejs/piano'),
+      ]);
+      // S'assurer que le contexte Tone est démarré sur interaction utilisateur
+      await toneMod.start();
+      const Piano = pianoMod.Piano;
+      const piano = new Piano({ velocities: 4 });
+      piano.toDestination();
+      await piano.load();
+      pianoRef.current = piano;
+      setPianoStatus('ready');
+    } catch (e) {
+      console.warn('Tone.js Piano load failed:', e);
+      setPianoStatus('error');
+    }
+  }, [pianoStatus]);
 
   // Synthèse sinus pur (par défaut)
   const playSine = useCallback((ctx, freq, duration) => {
@@ -255,14 +287,41 @@ function AudioProvider({ children }) {
     }
   }, []);
 
+  // Lecture via Tone.js Piano (vrais samples Salamander Grand Piano).
+  // Requiert que pianoRef.current soit prêt (status === 'ready'). Sinon fallback sur synthèse.
+  const playPianoSampled = useCallback((freq, duration) => {
+    if (!pianoRef.current) return false;
+    try {
+      // Convertir la fréquence en nom de note (format Tone.js : "C4", "F#3", etc.)
+      const midi = Math.round(69 + 12 * Math.log2(freq / 440));
+      const info = midiToNoteName(midi);
+      pianoRef.current.keyDown({ note: info.en, velocity: 0.7 });
+      setTimeout(() => {
+        if (pianoRef.current) {
+          pianoRef.current.keyUp({ note: info.en });
+        }
+      }, duration * 1000);
+      return true;
+    } catch (e) {
+      console.warn('Piano sampled playback failed:', e);
+      return false;
+    }
+  }, []);
+
   const playFrequency = useCallback((freq, duration = 1.5) => {
     const ctx = ensureContext();
-    if (timbre === 'piano') {
+    if (timbre === 'piano-samples' && pianoStatus === 'ready') {
+      if (playPianoSampled(freq, duration)) return;
+      // Fallback si échec
       playPiano(ctx, freq, duration);
-    } else {
-      playSine(ctx, freq, duration);
+      return;
     }
-  }, [ensureContext, timbre, playSine, playPiano]);
+    if (timbre === 'piano' || (timbre === 'piano-samples' && pianoStatus !== 'ready')) {
+      playPiano(ctx, freq, duration);
+      return;
+    }
+    playSine(ctx, freq, duration);
+  }, [ensureContext, timbre, pianoStatus, playSine, playPiano, playPianoSampled]);
 
   const playMidi = useCallback((midi, duration) => {
     playFrequency(midiToFreq(midi), duration);
@@ -285,6 +344,7 @@ function AudioProvider({ children }) {
       isIOS: IS_IOS,
       forceAudioInSilent, setForceAudioInSilent,
       timbre, setTimbre,
+      pianoStatus, loadTonePiano,
     },
   }, children);
 }
@@ -1349,7 +1409,7 @@ function Lesson5({ onComplete }) {
         h('p', { className: 'leading-relaxed' },
           'La voix parlée sert de ',
           h('em', { className: 'font-serif-body italic' }, 'centre de gravité'),
-          ' vocal. Les exercices que tu feras (maintenant et plus tard) sont calibrés par rapport à cette zone. Surtout, le passaggio — objet principal de ce parcours — se situe à une distance à peu près prédictible au-dessus de ta voix parlée. Identifier F0 maintenant, c\'est poser la première balise.'
+          ' vocal. Les exercices que tu feras (maintenant et plus tard) sont calibrés par rapport à cette zone. Surtout, le ', h(Term, null, 'passaggio'), ' — objet principal de ce parcours — se situe à une distance à peu près prédictible au-dessus de ta voix parlée. Identifier F0 maintenant, c\'est poser la première balise.'
         )
       )
     ),
@@ -1507,7 +1567,7 @@ function Lesson6({ onComplete }) {
   return h('div', { className: 'max-w-prose mx-auto' },
     h('section', { className: sectionCls },
       h('p', { className: pCls + ' text-dim italic font-serif-body' },
-        'C\'est la leçon structurante du Bloc 1. Elle prend 20 minutes — volontairement un peu plus que les précédentes — parce que son résultat va calibrer tout le reste de ton parcours. L\'exercice produit une estimation de ta tessiture personnelle, incluant un premier repérage de ta zone de passaggio.'
+        'C\'est la leçon structurante du Bloc 1. Elle prend 20 minutes — volontairement un peu plus que les précédentes — parce que son résultat va calibrer tout le reste de ton parcours. L\'exercice produit une estimation de ta ', h(Term, null, 'tessiture'), ' personnelle, incluant un premier repérage de ta zone de ', h(Term, null, 'passaggio'), '.'
       ),
 
       h('div', { className: 'mb-6 p-4 border border-accent/30 bg-accent/5 rounded-sm text-sm' },
@@ -1535,11 +1595,11 @@ function Lesson6({ onComplete }) {
           h('strong', null, 'Ton grave confortable'),
           ' : la note la plus basse que tu peux produire sans effort'),
         h('li', { className: 'relative pl-3 before:content-["•"] before:absolute before:left-0 before:text-accent' },
-          h('strong', null, 'Ton passaggio pressenti'),
-          ' : la note où tu sens un premier changement (bascule, tension, timbre différent)'),
+          h('strong', null, 'Ton ', h(Term, null, 'passaggio'), ' pressenti'),
+          ' : la note où tu sens un premier changement (bascule, tension, ', h(Term, null, 'timbre'), ' différent)'),
         h('li', { className: 'relative pl-3 before:content-["•"] before:absolute before:left-0 before:text-accent' },
-          h('strong', null, 'Ton aigu en poitrine'),
-          ' : la note la plus haute que tu peux tenir dans ton registre « parlé » sans basculer'),
+          h('strong', null, 'Ton aigu en ', h(Term, { k: 'voix de poitrine' }, 'poitrine')),
+          ' : la note la plus haute que tu peux tenir dans ton ', h(Term, null, 'registre'), ' « parlé » sans basculer'),
         h('li', { className: 'relative pl-3 before:content-["•"] before:absolute before:left-0 before:text-accent' },
           h('strong', null, 'Ton aigu confortable global'),
           ' : la note la plus haute que tu peux produire de façon stable, quel que soit le registre'),
@@ -1622,6 +1682,19 @@ function Lesson6Exercise() {
 
   const allFilled = Object.values(notes).every(v => v !== null);
 
+  const filledCount = Object.values(notes).filter(v => v !== null).length;
+
+  const missingLabels = useMemo(() => {
+    const labels = {
+      parlee_confortable: 'note parlée',
+      grave_limite_confortable: 'grave confortable',
+      passaggio_pressenti_bas: 'passaggio pressenti',
+      aigu_limite_confortable_poitrine: 'aigu en poitrine',
+      aigu_limite_confortable_global: 'aigu global',
+    };
+    return Object.entries(notes).filter(([_, v]) => v === null).map(([k]) => labels[k]);
+  }, [notes]);
+
   const saveAll = () => {
     try {
       const lsKey = 'chant.state.v1';
@@ -1686,16 +1759,20 @@ function Lesson6Exercise() {
   return h('section', { className: 'mt-8' },
     h('h2', { className: 'font-serif-display text-2xl text-ink mt-10 mb-4 tracking-tight' }, '2. Cartographie'),
 
-    notes.parlee_confortable ? h('div', { className: 'my-4 p-3 bg-accent/5 border border-accent/30 rounded-sm text-sm' },
-      '✓ Ta note parlée (leçon 5) : ',
-      h('span', { className: 'font-mono font-medium' }, midiToNoteName(notes.parlee_confortable).en),
-      '. Si elle te semble fausse aujourd\'hui, retourne à la leçon 5 et refais l\'exercice.'
-    ) : h('div', { className: 'my-4 p-3 bg-soft border border-rule rounded-sm text-sm' },
-      '⚠ Tu n\'as pas encore fait la leçon 5. Retournes-y d\'abord pour identifier ta note parlée confortable.'
+    h('p', { className: 'text-sm text-dim leading-relaxed mb-4' },
+      'Cinq notes à identifier successivement. La première (note parlée) est reprise de la leçon 5 si tu l\'as déjà faite, mais tu peux la modifier. Le résumé et le bouton d\'enregistrement n\'apparaîtront qu\'une fois les cinq notes renseignées.'
     ),
 
     h(NoteSelector, {
-      label: 'Ton grave confortable',
+      label: '1. Ta note parlée confortable',
+      explanation: 'Ta note parlée habituelle, identifiée en leçon 5. Tu peux la laisser telle quelle ou la modifier si tu la sens différemment aujourd\'hui.',
+      hint: notes.parlee_confortable !== null ? 'Reprise de la leçon 5 — modifiable.' : 'Non identifiée. Va faire la leçon 5 d\'abord (ou sélectionne directement ici).',
+      field: 'parlee_confortable',
+      min: 40, max: 55, // E2 à G3
+    }),
+
+    h(NoteSelector, {
+      label: '2. Ton grave confortable',
       explanation: 'Descends progressivement depuis ta note parlée. À quelle note ton son devient-il instable, soufflé, peu sonore, ou difficile à tenir ? Sélectionne la dernière note où tu es encore confortable.',
       hint: 'Pour information : il est normal que le son devienne soufflé en descendant. Cherche la limite du confort, pas la limite absolue.',
       field: 'grave_limite_confortable',
@@ -1703,7 +1780,7 @@ function Lesson6Exercise() {
     }),
 
     h(NoteSelector, {
-      label: 'Ton passaggio pressenti',
+      label: '3. Ton passaggio pressenti',
       explanation: 'Remonte progressivement depuis ta note parlée en chantant un « ah » ou « oh » relâché. À quelle note ressens-tu un premier changement : sensation de « basculer », tension nouvelle, timbre différent, impression que tu vas « craquer » ?',
       hint: 'Cette note est la plus importante de l\'exercice — elle conditionne l\'hypothèse de ton type de voix.',
       field: 'passaggio_pressenti_bas',
@@ -1711,34 +1788,44 @@ function Lesson6Exercise() {
     }),
 
     h(NoteSelector, {
-      label: 'Ton aigu en poitrine (avant la bascule)',
+      label: '4. Ton aigu en poitrine (avant la bascule)',
       explanation: 'La note la plus haute que tu peux tenir sans basculer dans un registre « plus léger/falsetto ». C\'est souvent un demi-ton ou un ton au-dessus de ton passaggio pressenti.',
       field: 'aigu_limite_confortable_poitrine',
       min: 52, max: 69, // E3 à A4
     }),
 
     h(NoteSelector, {
-      label: 'Ton aigu confortable global',
+      label: '5. Ton aigu confortable global',
       explanation: 'La note la plus haute que tu peux produire de façon stable, tout registre confondu (y compris après la bascule, en voix de tête/falsetto).',
       hint: 'Ne pas pousser. Si ça force ou fait mal, arrête.',
       field: 'aigu_limite_confortable_global',
       min: 55, max: 72, // G3 à C5
     }),
 
-    allFilled ? h('div', { className: 'mt-8 p-5 border border-accent/40 bg-accent/5 rounded-sm' },
+    // Indicateur de progression visible en permanence
+    h('div', { className: 'mt-6 p-3 border border-rule rounded-sm bg-soft/30 text-sm' },
+      allFilled
+        ? h('div', { className: 'text-accent font-medium' }, '✓ Cinq notes sélectionnées — ton résumé est prêt ci-dessous.')
+        : h('div', { className: 'text-dim' },
+            h('strong', { className: 'text-ink' }, filledCount, ' note', filledCount > 1 ? 's' : '', ' sur 5 sélectionnée', filledCount > 1 ? 's' : ''),
+            '. ', missingLabels.length ? 'Il manque : ' + missingLabels.join(', ') + '.' : ''
+          )
+    ),
+
+    allFilled ? h('div', { className: 'mt-6 p-5 border border-accent/40 bg-accent/5 rounded-sm' },
       h('h3', { className: 'font-serif-display text-xl mb-3' }, 'Résumé de ta cartographie'),
       h('ul', { className: 'space-y-1.5 text-sm mb-4' },
         Object.entries(notes).map(([k, v]) => {
           const labels = {
-            parlee_confortable: 'Note parlée confortable',
-            grave_limite_confortable: 'Grave confortable',
-            passaggio_pressenti_bas: 'Passaggio pressenti',
-            aigu_limite_confortable_poitrine: 'Aigu en poitrine',
-            aigu_limite_confortable_global: 'Aigu global',
+            parlee_confortable: '1. Note parlée confortable',
+            grave_limite_confortable: '2. Grave confortable',
+            passaggio_pressenti_bas: '3. Passaggio pressenti',
+            aigu_limite_confortable_poitrine: '4. Aigu en poitrine',
+            aigu_limite_confortable_global: '5. Aigu global',
           };
           return h('li', { key: k, className: 'flex items-baseline justify-between' },
             h('span', { className: 'text-ink' }, labels[k]),
-            h('span', { className: 'font-mono font-medium' }, v !== null ? midiToNoteName(v).en : '—')
+            h('span', { className: 'font-mono font-medium' }, v !== null ? midiToNoteName(v).en + ' / ' + midiToNoteName(v).fr : '—')
           );
         })
       ),
@@ -1759,9 +1846,7 @@ function Lesson6Exercise() {
       }, 'Enregistrer ma cartographie') : h('div', { className: 'mt-4 p-3 bg-green-50 border border-green-200 rounded-sm text-sm text-green-900' },
         '✓ Enregistré en local. Clique sur « Exporter » (en haut à droite) pour télécharger les JSON et les versionner dans ton repo.'
       )
-    ) : h('p', { className: 'mt-6 text-sm text-dim italic' },
-      'Une fois les cinq notes sélectionnées, une hypothèse de type de voix sera calculée et tu pourras enregistrer le tout.'
-    )
+    ) : null
   );
 }
 
@@ -2083,6 +2168,82 @@ const GLOSSARY = [
   { terme: 'Type de voix (Fach)', categorie: 'pedagogie', definition: 'Classification des voix selon leur tessiture et leur couleur. Voix masculines : basse profonde, basse, basse-baryton, baryton, baryton aigu, ténor. "Fach" est le terme allemand, repris dans la littérature internationale. Les catégories se chevauchent.', introLecon: 'bloc1-s1-l6', sources: [{ auteur: 'Bozeman', reference: 'PVA, Appendix 3' }] },
 ];
 
+/* ============================================================
+   COMPOSANT TERM — popup de définition au clic
+   ============================================================ */
+
+// Index des termes du glossaire pour lookup rapide (construit à partir de GLOSSARY)
+const glossaryIndex = () => {
+  const idx = {};
+  for (const entry of GLOSSARY) {
+    idx[entry.terme.toLowerCase()] = entry;
+  }
+  return idx;
+};
+
+let _glossaryIndexCache = null;
+function getGlossaryEntry(termeKey) {
+  if (!_glossaryIndexCache) _glossaryIndexCache = glossaryIndex();
+  return _glossaryIndexCache[termeKey.toLowerCase()] || null;
+}
+
+function Term({ children, k }) {
+  // k (optionnel) = clé du glossaire si différente du texte affiché
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  const key = k || (typeof children === 'string' ? children : null);
+  const entry = key ? getGlossaryEntry(key) : null;
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e) => {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    };
+    const esc = (e) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', handler);
+    document.addEventListener('keydown', esc);
+    return () => {
+      document.removeEventListener('mousedown', handler);
+      document.removeEventListener('keydown', esc);
+    };
+  }, [open]);
+
+  if (!entry) {
+    // Pas d'entrée glossaire pour ce terme, on rend le texte seul
+    return children;
+  }
+
+  return h('span', { ref, className: 'relative inline' },
+    h('button', {
+      onClick: () => setOpen(!open),
+      className: 'underline decoration-dotted decoration-accent/60 underline-offset-2 hover:decoration-solid hover:decoration-accent transition-all cursor-help',
+      'aria-label': `Définition de ${entry.terme}`,
+      'aria-expanded': open,
+    }, children),
+    open ? h('span', {
+      className: 'absolute z-40 left-0 top-full mt-1 w-[min(320px,calc(100vw-2rem))] bg-paper border border-ink rounded-sm shadow-lg p-3 text-left text-[13px] leading-relaxed font-sans',
+      style: { maxWidth: 'calc(100vw - 2rem)' },
+    },
+      h('span', { className: 'flex items-baseline justify-between mb-1.5' },
+        h('span', { className: 'font-medium text-ink' }, entry.terme),
+        h('button', {
+          onClick: (e) => { e.stopPropagation(); setOpen(false); },
+          className: 'text-dim hover:text-ink text-lg leading-none ml-2',
+          'aria-label': 'Fermer',
+        }, '×')
+      ),
+      h('span', { className: 'block text-ink' }, entry.definition),
+      entry.noteApprofondissement ? h('span', { className: 'block text-dim italic text-[12px] mt-1.5' },
+        '→ ', entry.noteApprofondissement
+      ) : null,
+      entry.sources && entry.sources.length > 0 ? h('span', { className: 'block text-[11px] text-dim mt-1.5 pt-1.5 border-t border-rule' },
+        entry.sources.map(s => `${s.auteur} (${s.reference})`).join(' · ')
+      ) : null,
+    ) : null
+  );
+}
+
+
 function GlossaryView({ onClose, onNavigateToLesson }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState('tous');
@@ -2363,24 +2524,36 @@ function SettingsPanel({ onClose }) {
           h('div', { className: 'space-y-2' },
             [
               { id: 'sine', label: 'Sinus pur', desc: 'Son épuré, sans harmoniques. Non ambigu pour l\'apprentissage, mais parfois difficile à "saisir" comme hauteur.' },
-              { id: 'piano', label: 'Piano (synthèse)', desc: 'Son harmoniquement plus riche, attaque piano. Hauteur plus facile à percevoir. Reste synthétique, pas un vrai enregistrement.' },
-            ].map(t => h('label', {
-              key: t.id,
-              className: `flex items-start gap-3 p-3 border rounded-sm cursor-pointer transition-colors ${audio.timbre === t.id ? 'border-ink bg-soft' : 'border-rule hover:border-dim'}`,
-            },
-              h('input', {
-                type: 'radio',
-                name: 'timbre',
-                value: t.id,
-                checked: audio.timbre === t.id,
-                onChange: () => audio.setTimbre(t.id),
-                className: 'mt-0.5 flex-shrink-0',
-              }),
-              h('span', null,
-                h('span', { className: 'font-medium text-sm' }, t.label),
-                h('span', { className: 'block text-xs text-dim mt-0.5 leading-relaxed' }, t.desc)
-              )
-            ))
+              { id: 'piano', label: 'Piano (synthèse)', desc: 'Son harmoniquement plus riche, attaque piano. Hauteur plus facile à percevoir. Reste synthétique, rapide, pas de téléchargement.' },
+              { id: 'piano-samples', label: 'Piano (samples réels)', desc: 'Vrai Steinway enregistré (Salamander Grand Piano, via Tone.js). Qualité maximale. Premier chargement : ~15 Mo téléchargés une fois depuis un CDN externe, puis mis en cache par le navigateur.' },
+            ].map(t => {
+              const isSelected = audio.timbre === t.id;
+              const isLoading = t.id === 'piano-samples' && audio.pianoStatus === 'loading';
+              const isReady = t.id === 'piano-samples' && audio.pianoStatus === 'ready';
+              const isError = t.id === 'piano-samples' && audio.pianoStatus === 'error';
+              return h('label', {
+                key: t.id,
+                className: `flex items-start gap-3 p-3 border rounded-sm cursor-pointer transition-colors ${isSelected ? 'border-ink bg-soft' : 'border-rule hover:border-dim'}`,
+              },
+                h('input', {
+                  type: 'radio',
+                  name: 'timbre',
+                  value: t.id,
+                  checked: isSelected,
+                  onChange: () => audio.setTimbre(t.id),
+                  className: 'mt-0.5 flex-shrink-0',
+                }),
+                h('span', { className: 'flex-1' },
+                  h('span', { className: 'font-medium text-sm flex items-center gap-2' },
+                    t.label,
+                    isLoading ? h('span', { className: 'text-[10px] text-accent font-mono' }, '⏳ chargement…') : null,
+                    isReady ? h('span', { className: 'text-[10px] text-green-700 font-mono' }, '✓ prêt') : null,
+                    isError ? h('span', { className: 'text-[10px] text-red-700 font-mono' }, '⚠ échec') : null,
+                  ),
+                  h('span', { className: 'block text-xs text-dim mt-0.5 leading-relaxed' }, t.desc)
+                )
+              );
+            })
           ),
           // Bouton test pour comparer
           h('div', { className: 'mt-3 flex items-center gap-2' },
