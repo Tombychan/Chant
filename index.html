@@ -145,6 +145,33 @@ function AudioProvider({ children }) {
   const audioCtxRef = useRef(null);
   const silentAudioRef = useRef(null);
 
+  // Chargement différé de Tone.js Piano (uniquement quand l'utilisateur choisit "piano-samples")
+  // Déclaré AVANT setTimbre car setTimbre les référence (TDZ).
+  const pianoRef = useRef(null);
+  const [pianoStatus, setPianoStatus] = useState('idle'); // 'idle' | 'loading' | 'ready' | 'error'
+
+  const loadTonePiano = useCallback(async () => {
+    if (pianoRef.current || pianoStatus === 'loading') return;
+    setPianoStatus('loading');
+    try {
+      const [toneMod, pianoMod] = await Promise.all([
+        import('tone'),
+        import('@tonejs/piano'),
+      ]);
+      // S'assurer que le contexte Tone est démarré sur interaction utilisateur
+      await toneMod.start();
+      const Piano = pianoMod.Piano;
+      const piano = new Piano({ velocities: 4 });
+      piano.toDestination();
+      await piano.load();
+      pianoRef.current = piano;
+      setPianoStatus('ready');
+    } catch (e) {
+      console.warn('Tone.js Piano load failed:', e);
+      setPianoStatus('error');
+    }
+  }, [pianoStatus]);
+
   const setTimbre = useCallback((t) => {
     setTimbreState(t);
     try { localStorage.setItem(LS_TIMBRE_KEY, t); } catch {}
@@ -200,32 +227,6 @@ function AudioProvider({ children }) {
     setActivated(true);
     return audioCtxRef.current;
   }, [forceAudioInSilent, ensureSilentAudio]);
-
-  // Chargement différé de Tone.js Piano (uniquement quand l'utilisateur choisit "piano-samples")
-  const pianoRef = useRef(null);
-  const [pianoStatus, setPianoStatus] = useState('idle'); // 'idle' | 'loading' | 'ready' | 'error'
-
-  const loadTonePiano = useCallback(async () => {
-    if (pianoRef.current || pianoStatus === 'loading') return;
-    setPianoStatus('loading');
-    try {
-      const [toneMod, pianoMod] = await Promise.all([
-        import('tone'),
-        import('@tonejs/piano'),
-      ]);
-      // S'assurer que le contexte Tone est démarré sur interaction utilisateur
-      await toneMod.start();
-      const Piano = pianoMod.Piano;
-      const piano = new Piano({ velocities: 4 });
-      piano.toDestination();
-      await piano.load();
-      pianoRef.current = piano;
-      setPianoStatus('ready');
-    } catch (e) {
-      console.warn('Tone.js Piano load failed:', e);
-      setPianoStatus('error');
-    }
-  }, [pianoStatus]);
 
   // Synthèse sinus pur (par défaut)
   const playSine = useCallback((ctx, freq, duration) => {
