@@ -7,42 +7,42 @@
     }
   ],
   "bloc_courant": "bloc1-s1",
-  "lecon_courante": "bloc1-s1-l1",
+  "lecon_courante": "bloc1-s1-l4",
   "lecons": {
     "bloc1-s1-l1": {
-      "statut": "non_demarree",
-      "date_demarrage": null,
-      "date_completion": null,
+      "statut": "completee",
+      "date_demarrage": "2026-04-23T15:20:09.435Z",
+      "date_completion": "2026-04-23T15:20:12.303Z",
       "duree_reelle_minutes": null
     },
     "bloc1-s1-l2": {
-      "statut": "non_demarree",
-      "date_demarrage": null,
-      "date_completion": null,
+      "statut": "completee",
+      "date_demarrage": "2026-04-23T15:20:20.863Z",
+      "date_completion": "2026-04-23T15:20:22.913Z",
       "duree_reelle_minutes": null
     },
     "bloc1-s1-l3": {
-      "statut": "non_demarree",
-      "date_demarrage": null,
-      "date_completion": null,
+      "statut": "completee",
+      "date_demarrage": "2026-04-23T15:20:27.019Z",
+      "date_completion": "2026-04-23T15:20:29.278Z",
       "duree_reelle_minutes": null
     },
     "bloc1-s1-l4": {
-      "statut": "non_demarree",
-      "date_demarrage": null,
-      "date_completion": null,
+      "statut": "completee",
+      "date_demarrage": "2026-04-23T15:20:56.866Z",
+      "date_completion": "2026-04-23T15:20:59.183Z",
       "duree_reelle_minutes": null
     },
     "bloc1-s1-l5": {
-      "statut": "non_demarree",
-      "date_demarrage": null,
-      "date_completion": null,
+      "statut": "completee",
+      "date_demarrage": "2026-04-23T15:20:51.157Z",
+      "date_completion": "2026-04-23T16:22:36.528Z",
       "duree_reelle_minutes": null
     },
     "bloc1-s1-l6": {
-      "statut": "non_demarree",
-      "date_demarrage": null,
-      "date_completion": null,
+      "statut": "completee",
+      "date_demarrage": "2026-04-23T14:47:10.436Z",
+      "date_completion": "2026-04-23T16:59:05.003Z",
       "duree_reelle_minutes": null
     }
   }
